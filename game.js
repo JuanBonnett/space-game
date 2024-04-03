@@ -321,7 +321,7 @@ class Player {
             this.#vel.x = this.#maxVel;
         } else if((this.#vel.x + accelX) <= -this.#maxVel) { //Going left
             this.#vel.x = -this.#maxVel;
-        }else {
+        } else {
             this.#vel.x += accelX;
         }
 

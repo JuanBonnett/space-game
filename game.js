@@ -25,9 +25,11 @@ class GameGlobals {
 }
 
 class Input {
+
+    static keys = {};
     
     static keyDown(key, callback) {
-        document.addEventListener('keydown', (e) => {
+        window.addEventListener('keydown', (e) => {
             if(e.key.toLowerCase() === key.toLowerCase()) {
                 callback();
             }
@@ -35,10 +37,33 @@ class Input {
     }
 
     static keyUp(key, callback) {
-        document.addEventListener('keyup', (e) => {
+        window.addEventListener('keyup', (e) => {
             if(e.key.toLowerCase() === key.toLowerCase()) {
                 callback();
             }
+        });
+    }
+
+    static once(key, callback) {
+        this.keys[key] = { pressed : false };
+        this.keyDown(key, () => {
+            if(!this.keys[key].pressed) callback();
+            this.keys[key].pressed = true;
+        });
+        window.addEventListener('keyup', (e) => {
+            if(e.key.toLowerCase() === key.toLowerCase()) {
+                this.keys[key].pressed = false;
+            }
+        });
+    }
+
+    static listen(key) {
+        this.keys[key] = { pressed : false };
+        this.once(key, () => {
+            this.keys[key].pressed = true;
+        });
+        this.keyUp(key, () => {
+            this.keys[key].pressed = false;
         });
     }
 
@@ -46,12 +71,54 @@ class Input {
 
 class GMath {
 
+    /*
+    These trigonometry functions are modified so the angles increase
+    when rotating clockwise. 0 degrees point EAST and the Y axis points SOUTH.
+    */
+
     static toRadians(deg) {
         return deg * Math.PI / 180;
     }
 
     static toDegrees(rad) {
         return rad * 180 / Math.PI;
+    }
+
+    static vectorAngleR(x, y) {
+        let angle = Math.atan2(y, x);
+        if(x <= 0) angle += 2 * Math.PI;
+        return angle;
+    }
+
+    static vectorAngleD(x, y) {
+        let degrees = this.toDegrees(this.vectorAngleR(y, x));
+        degrees %= 360;
+        if(degrees < 0) degrees += 360;
+        return degrees;
+    }  
+
+    static pointsAngleR(x1, y1, x2, y2) {
+        let angle = Math.atan2(x2 - x1, y2 - y1);
+        if(angle <= 0) angle += 2 * Math.PI;
+        return angle;
+    }
+
+    static pointsAngleD(x1, y1, x2, y2) {
+        let degrees = this.toDegrees(this.pointsAngleR(x1, y1, x2, y2));
+        degrees %= 360;
+        if(degrees <= 0) degrees += 360;
+        return degrees;
+    }
+
+    static rotateVector(x, y, a, degrees = true) {
+        if(degrees) a = this.toRadians(a);
+        let c = Math.cos(a);
+        let s = Math.sin(a);
+        return [c * x + s * y, -s * x + c * y];
+    }
+
+    static normalizeVector(x, y) {
+
     }
 
 }
@@ -76,7 +143,7 @@ class Game {
     }
 
     #initEvents() {
-        Input.keyDown('r', () => { 
+        Input.once('r', () => { 
             this.#player.reset();
             this.#player.pos.x = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.width * 0.5;
             this.#player.pos.y = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.height * 0.5;
@@ -250,7 +317,7 @@ class Player {
     constructor() {
         let sprite = GameGlobals.ASSETS.PLAYER_SPRITE;
 
-        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7);
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height);
         this.#sprite.createAnimationState('iddle', 0, 0, 0, 10);
         this.#sprite.createAnimationState('startup', 0, 0, 3, 10);
         this.#sprite.createAnimationState('running', 0, 3, 6, 10);
@@ -292,20 +359,20 @@ class Player {
     }
 
     update() {
-        this.#updateSelfPosition();
-        this.#updateSelfOrientation();
+        this.#updatePosition();
+        this.#updateOrientation();
     }
 
     draw() {
         this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
     }
 
-    #updateSelfPosition() {
+    #updatePosition() {
         this.pos.x += this.#vel.x;
         this.pos.y += this.#vel.y;
     }
 
-    #updateSelfOrientation() {
+    #updateOrientation() {
         if(this.#angle < 0 ) this.#angle = 360;
         else if(this.#angle > 360) this.#angle = 0;
         else this.#angle += this.#rotation;
@@ -321,7 +388,7 @@ class Player {
             this.#vel.x = this.#maxVel;
         } else if((this.#vel.x + accelX) <= -this.#maxVel) { //Going left
             this.#vel.x = -this.#maxVel;
-        }else {
+        } else {
             this.#vel.x += accelX;
         }
 

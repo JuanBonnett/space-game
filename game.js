@@ -59,6 +59,16 @@ class Input {
 
     static listen(key) {
         this.keys[key] = { pressed : false };
+        this.keyDown(key, () => {
+            this.keys[key].pressed = true;
+        });
+        this.keyUp(key, () => {
+            this.keys[key].pressed = false;
+        });
+    }
+
+    static listenOnce() {
+        this.keys[key] = { pressed : false };
         this.once(key, () => {
             this.keys[key].pressed = true;
         });
@@ -85,40 +95,47 @@ class GMath {
     }
 
     static vectorAngleR(x, y) {
-        let angle = Math.atan2(y, x);
-        if(x <= 0) angle += 2 * Math.PI;
+        let angle = Math.atan2(-y, x);
+        if (angle < 0) angle += 2 * Math.PI;
+        angle = (angle + Math.PI / 2) % (2 * Math.PI);
         return angle;
     }
 
     static vectorAngleD(x, y) {
-        let degrees = this.toDegrees(this.vectorAngleR(y, x));
-        degrees %= 360;
-        if(degrees < 0) degrees += 360;
-        return degrees;
+        return this.toDegrees(vectorAngleR(y, x));
     }  
 
     static pointsAngleR(x1, y1, x2, y2) {
         let angle = Math.atan2(x2 - x1, y2 - y1);
-        if(angle <= 0) angle += 2 * Math.PI;
+        if (angle < 0) angle += 2 * Math.PI;
+        angle = (2 * Math.PI - angle + Math.PI / 2) % (2 * Math.PI);
         return angle;
     }
 
     static pointsAngleD(x1, y1, x2, y2) {
-        let degrees = this.toDegrees(this.pointsAngleR(x1, y1, x2, y2));
-        degrees %= 360;
-        if(degrees <= 0) degrees += 360;
-        return degrees;
+        return this.toDegrees(this.pointsAngleR(x1, y1, x2, y2));
     }
 
     static rotateVector(x, y, a, degrees = true) {
-        if(degrees) a = this.toRadians(a);
+        if (degrees) a = this.toRadians(a);
         let c = Math.cos(a);
         let s = Math.sin(a);
-        return [c * x + s * y, -s * x + c * y];
+        return { x: c * x - s * y, y: s * x + c * y }; 
     }
 
     static normalizeVector(x, y) {
+        let d = Math.sqrt(x * x + y * y);
+        if (d > 0) {
+            let normalizedX = x / d;
+            let normalizedY = y / d;
+            return { x : normalizedX * l,  y : normalizedY * l};
+        }
+    }
 
+    static vDistance(x1, y1, x2, y2) {
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
 }
@@ -151,9 +168,9 @@ class Game {
     }
 
     update() {
+        /*
         this.draw();
-
-        this.#playerLogic();
+        this.#playerLogic();*/
     }
 
     draw() {

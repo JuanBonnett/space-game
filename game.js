@@ -30,7 +30,7 @@ class Input {
     
     static keyDown(key, callback) {
         window.addEventListener('keydown', (e) => {
-            if(e.key.toLowerCase() === key.toLowerCase()) {
+            if(e.key.toLowerCase() === key.toLowerCase() && !this.keys[key]?.locked) {
                 callback();
             }
         });
@@ -38,7 +38,7 @@ class Input {
 
     static keyUp(key, callback) {
         window.addEventListener('keyup', (e) => {
-            if(e.key.toLowerCase() === key.toLowerCase()) {
+            if(e.key.toLowerCase() === key.toLowerCase() && !this.keys[key]?.locked) {
                 callback();
             }
         });
@@ -77,6 +77,14 @@ class Input {
         });
     }
 
+    static lock(key) {
+        this.keys[key] = { locked : true };
+    }
+
+    static unlock(key) {
+        this.keys[key] = { locked : false };
+    }
+
 }
 
 class GMath {
@@ -105,6 +113,10 @@ class GMath {
         return this.toDegrees(vectorAngleR(y, x));
     }  
 
+    static vectorMagnitude(x, y) {
+        return Math.sqrt(x * x + y * y);
+    }
+
     static pointsAngleR(x1, y1, x2, y2) {
         let angle = Math.atan2(x2 - x1, y2 - y1);
         if (angle < 0) angle += 2 * Math.PI;
@@ -123,12 +135,12 @@ class GMath {
         return { x: c * x - s * y, y: s * x + c * y }; 
     }
 
-    static normalizeVector(x, y) {
-        let d = Math.sqrt(x * x + y * y);
-        if (d > 0) {
-            let normalizedX = x / d;
-            let normalizedY = y / d;
-            return { x : normalizedX * l,  y : normalizedY * l};
+    static normalizeVector(x, y, scalar = 1) {
+        let m = this.vectorMagnitude(x, y);
+        if (m > 0) {
+            let normalizedX = x / m;
+            let normalizedY = y / m;
+            return { x : normalizedX * scalar,  y : normalizedY * scalar};
         }
     }
 
@@ -168,9 +180,8 @@ class Game {
     }
 
     update() {
-        /*
         this.draw();
-        this.#playerLogic();*/
+        this.#playerLogic();
     }
 
     draw() {
@@ -302,6 +313,8 @@ class AnimatedSprite extends Sprite {
     }
 
     setAnimationState(name) {
+        if(name === this.#activeState) return;
+
         let state = this.#animationStates[name];
 
         this.#activeState = name;
@@ -334,10 +347,11 @@ class Player {
     constructor() {
         let sprite = GameGlobals.ASSETS.PLAYER_SPRITE;
 
-        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height);
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7);
         this.#sprite.createAnimationState('iddle', 0, 0, 0, 10);
         this.#sprite.createAnimationState('startup', 0, 0, 3, 10);
         this.#sprite.createAnimationState('running', 0, 3, 6, 10);
+        this.#sprite.createAnimationState('blinking', 0, -1, 0, 7);
         this.#sprite.setAnimationState('iddle');
 
         this.#isAccelerating = false;
@@ -382,6 +396,7 @@ class Player {
 
     draw() {
         this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
+        //this.#visualizeVelocityVector();
     }
 
     #updatePosition() {
@@ -398,23 +413,15 @@ class Player {
     accel() {
         let accelX = Math.cos(GMath.toRadians(this.#angle)) * this.#acceleration;
         let accelY = Math.sin(GMath.toRadians(this.#angle)) * this.#acceleration;
-
+        let vMag;
+    
         this.#isAccelerating = true;
-
-        if((this.#vel.x + accelX) >= this.#maxVel) { //Going right
-            this.#vel.x = this.#maxVel;
-        } else if((this.#vel.x + accelX) <= -this.#maxVel) { //Going left
-            this.#vel.x = -this.#maxVel;
-        } else {
-            this.#vel.x += accelX;
-        }
-
-        if((this.#vel.y + accelY) >= this.#maxVel) { //Going down
-            this.#vel.y = this.#maxVel;
-        } else if((this.#vel.y + accelY) <= -this.#maxVel ) { //Going up
-            this.#vel.y = -this.#maxVel;
-        } else {
-            this.#vel.y += accelY;
+        this.#vel.x += accelX;
+        this.#vel.y += accelY;
+        vMag = GMath.vectorMagnitude(this.#vel.x, this.#vel.y);
+        
+        if (vMag > this.#maxVel) {
+            this.#vel = GMath.normalizeVector(this.#vel.x, this.#vel.y, this.#maxVel);
         }
     }
 
@@ -435,7 +442,25 @@ class Player {
     }
 
     reset() {
+        this.sprite.setAnimationState('blinking');
+        Input.lock('w');
+        setTimeout(() => {
+            this.sprite.setAnimationState('iddle');
+            Input.unlock('w');
+        }, 1000);
         this.#initSettings();
+    }
+
+    #visualizeVelocityVector () {
+        let posX = this.pos.x + this.#sprite.width * 0.5;
+        let posY = this.pos.y + this.#sprite.height * 0.5;
+
+        GameGlobals.CTX.beginPath();
+        GameGlobals.CTX.moveTo(posX, posY);
+        GameGlobals.CTX.lineTo(posX + this.#vel.x * 50, posY + this.#vel.y * 50);
+        GameGlobals.CTX.lineWidth = 2;
+        GameGlobals.CTX.strokeStyle = 'lime';
+        GameGlobals.CTX.stroke();
     }
 
     get vel() { return this.#vel; }

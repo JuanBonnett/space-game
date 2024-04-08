@@ -11,10 +11,10 @@ class GameGlobals {
         ]
     }
     static PLAYER_SETTINGS = {
-        acceleration : 0.2,
-        angle : 0,
+        acceleration : 0.04,
+        angle : 270,
         rotation : 0,
-        torque : 0.2,
+        torque : 0.5,
         vel : { x : 0, y : 0 },
         maxVel : 3,
         maxRotation : 3,
@@ -59,7 +59,7 @@ class Input {
 
     static listen(key) {
         this.keys[key] = { pressed : false };
-        this.keyDown(key, () => {
+        this.once(key, () => {
             this.keys[key].pressed = true;
         });
         this.keyUp(key, () => {
@@ -159,11 +159,12 @@ class Game {
     
     constructor() {
         this.#initGame();
-        this.#initEvents();
+        this.#initInput();
     }
 
     #initGame() {
         let starsBG = GameGlobals.ASSETS.BACKGROUNDS_SPRITES[0];
+        
         this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
         this.#player = new Player();
@@ -171,12 +172,17 @@ class Game {
         this.#player.pos.y = GameGlobals.SCREEN_WIDTH * 0.5 -(this.#player.height * 0.5) * this.#player.sprite.scale;
     }
 
-    #initEvents() {
+    #initInput() {
+        //Player
         Input.once('r', () => { 
             this.#player.reset();
             this.#player.pos.x = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.width * 0.5;
             this.#player.pos.y = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.height * 0.5;
         });
+        Input.listen('w');
+        Input.keyUp('w', () => this.#player.stopAccel());
+        Input.keyDown('d', () => this.#player.rotateR());
+        Input.keyDown('a', () => this.#player.rotateL());
     }
 
     update() {
@@ -357,7 +363,6 @@ class Player {
         this.#isAccelerating = false;
 
         this.#initSettings();
-        this.#initEvents();
     }
 
     #initSettings() {
@@ -372,24 +377,8 @@ class Player {
         this.#maxRotation = settings.maxRotation;
     }
 
-    #initEvents() {
-        Input.keyDown('w', () => {
-            if(!this.#isAccelerating) {
-                this.#sprite.setAnimationState('running');
-            }
-            this.accel(); 
-        });
-
-        Input.keyUp('w', () => {
-            this.#isAccelerating = false;
-            this.#sprite.setAnimationState('iddle');
-        });
-
-        Input.keyDown('d', () => this.rotateR());
-        Input.keyDown('a', () => this.rotateL());
-    }
-
     update() {
+        this.#updateFromInput();
         this.#updatePosition();
         this.#updateOrientation();
     }
@@ -397,6 +386,15 @@ class Player {
     draw() {
         this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
         //this.#visualizeVelocityVector();
+    }
+
+    #updateFromInput() {
+        if(Input.keys.w?.pressed) {
+            if(!this.#isAccelerating) {
+                this.#sprite.setAnimationState('running');
+            }
+            this.accel(); 
+        }
     }
 
     #updatePosition() {
@@ -423,6 +421,11 @@ class Player {
         if (vMag > this.#maxVel) {
             this.#vel = GMath.normalizeVector(this.#vel.x, this.#vel.y, this.#maxVel);
         }
+    }
+
+    stopAccel() {
+        this.#isAccelerating = false;
+        this.#sprite.setAnimationState('iddle');
     }
 
     rotateR() { 
@@ -469,6 +472,7 @@ class Player {
     get width() { return this.#sprite.width; }
     get height() { return this.#sprite.height; } 
     get sprite() { return this.#sprite; }
+    get isAccelerating() { return this.#isAccelerating; }
 
 }
 

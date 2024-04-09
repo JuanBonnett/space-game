@@ -1,14 +1,19 @@
-class GameGlobals {
+class GG {
 
     static CANVAS = document.getElementById('game-canvas');
     static CTX = this.CANVAS.getContext('2d');
     static SCREEN_WIDTH = this.CANVAS.width = 800;
     static SCREEN_HEIGHT = this.CANVAS.height = 800;
     static ASSETS = {
-        PLAYER_SPRITE : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
-        BACKGROUNDS_SPRITES : [
-            { src : 'assets/bg.png', width : 800, height : 800, }
-        ]
+        SPRITES : {
+            BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
+            PLAYER : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
+            PROJECTILE : { src : 'assets/projectile-spritesheet.png', width : 74, height : 52, },
+        }, 
+        AUDIO : { 
+            music : 'assets/track1.mp3',
+            laser : 'assets/laser.mp3',
+        },
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.04,
@@ -18,6 +23,7 @@ class GameGlobals {
         vel : { x : 0, y : 0 },
         maxVel : 3,
         maxRotation : 3,
+        projectileSpeed : 15,
     }
 
     static frame = 0;
@@ -156,62 +162,121 @@ class Game {
 
     #starsBG;
     #player;
+    #playerSpriteOffset;
+    #projectiles;
+    #audio;
     
     constructor() {
         this.#initGame();
         this.#initInput();
+        this.#initAudio();
     }
 
     #initGame() {
-        let starsBG = GameGlobals.ASSETS.BACKGROUNDS_SPRITES[0];
+        let starsBG = GG.ASSETS.SPRITES.BACKGROUND;
         
         this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
         this.#player = new Player();
-        this.#player.pos.x = GameGlobals.SCREEN_WIDTH * 0.5 - (this.#player.width * 0.5) * this.#player.sprite.scale;
-        this.#player.pos.y = GameGlobals.SCREEN_WIDTH * 0.5 -(this.#player.height * 0.5) * this.#player.sprite.scale;
+        this.#player.pos.x = GG.SCREEN_WIDTH * 0.5;
+        this.#player.pos.y = GG.SCREEN_HEIGHT * 0.5;
+        this.#playerSpriteOffset = this.#player.width * 0.5;
+        this.#projectiles = [];
     }
 
     #initInput() {
         //Player
         Input.once('r', () => { 
             this.#player.reset();
-            this.#player.pos.x = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.width * 0.5;
-            this.#player.pos.y = GameGlobals.SCREEN_WIDTH * 0.5 - this.#player.height * 0.5;
+            this.#player.pos.x = GG.SCREEN_WIDTH * 0.5;
+            this.#player.pos.y = GG.SCREEN_WIDTH * 0.5;
         });
         Input.listen('w');
         Input.keyUp('w', () => this.#player.stopAccel());
         Input.keyDown('d', () => this.#player.rotateR());
         Input.keyDown('a', () => this.#player.rotateL());
+        
+        //Gameplay
+        Input.once(' ', () => {
+            let p = new Projectile(this.#player.pos.x, 
+                                   this.#player.pos.y, 
+                                   this.#player.angle);
+            this.#projectiles.push(p);
+        });
+
+        //Audio
+        Input.once('m', () => { 
+            if(this.#audio.music.playing) {
+                this.#audio.music.sound.pause();
+                this.#audio.music.playing = false;
+            }
+            else {
+                this.#audio.music.sound.play(); 
+                this.#audio.music.playing = true;
+            }
+        });
+    }
+
+    #initAudio() {
+        let assets = GG.ASSETS.AUDIO;
+
+        this.#audio = { 
+            music : { 
+                sound : new Audio(), 
+                playing : true,
+            },
+        };
+        this.#audio.music.sound.src = assets.music;
+        this.#audio.music.sound.play();
     }
 
     update() {
         this.draw();
+        this.#projectileLogic();
         this.#playerLogic();
     }
 
     draw() {
-        GameGlobals.CTX.clearRect(0, 0, GameGlobals.SCREEN_WIDTH, GameGlobals.SCREEN_HEIGHT);
+        GG.CTX.clearRect(0, 0, GG.SCREEN_WIDTH, GG.SCREEN_HEIGHT);
         this.#starsBG.draw(0, 0);
-        this.#player.draw();
     }
 
     #playerLogic() {
         this.#player.update();
-        if(this.#player.pos.x > GameGlobals.SCREEN_WIDTH) {
-            this.#player.pos.x = 0 - this.#player.sprite.width;
-        } else if (this.#player.pos.x  < 0 - this.#player.sprite.width) {
-            this.#player.pos.x = GameGlobals.SCREEN_WIDTH;
+
+        if(this.#player.pos.x > GG.SCREEN_WIDTH + this.#playerSpriteOffset) {
+            this.#player.pos.x = 0 - this.#playerSpriteOffset;
+        } else if (this.#player.pos.x  < 0 - this.#playerSpriteOffset) {
+            this.#player.pos.x = GG.SCREEN_WIDTH + this.#playerSpriteOffset;
         }
 
-        if(this.#player.pos.y > GameGlobals.SCREEN_HEIGHT) {
-            this.#player.pos.y = 0 - this.#player.sprite.width;
-        } else if (this.#player.pos.y < 0 - this.#player.sprite.width) {
-            this.#player.pos.y = GameGlobals.SCREEN_HEIGHT;
+        if(this.#player.pos.y > GG.SCREEN_HEIGHT + this.#playerSpriteOffset) {
+            this.#player.pos.y = 0 - this.#playerSpriteOffset;
+        } else if (this.#player.pos.y < 0 - this.#playerSpriteOffset) {
+            this.#player.pos.y = GG.SCREEN_HEIGHT + this.#playerSpriteOffset;
+        }
+
+        this.#player.draw();
+    }
+
+    #projectileLogic() {
+        for(let i = 0; i < this.#projectiles.length; i++) {
+            if(this.#projectiles[i].pos.x > GG.SCREEN_WIDTH || 
+               this.#projectiles[i].pos.y > GG.SCREEN_HEIGHT ||
+               this.#projectiles[i].pos.x < 0 || this.#projectiles[i].pos.y < 0) {
+
+                this.#projectiles.splice(i, 1);
+                i--;
+                
+            } else {
+                this.#projectiles[i].update();
+                this.#projectiles[i].draw();
+            }
         }
     }
 
     get player() { return this.#player; }
+    get proyectiles() { return this.#projectiles; }
 
 }
 
@@ -235,13 +300,13 @@ class Sprite {
     }
 
     draw(x, y, rotation) {
-        let ctx = GameGlobals.CTX;
+        let ctx = GG.CTX;
 
         if(rotation !== undefined) {
             let deg = GMath.toRadians(rotation);
 
             ctx.save();
-            ctx.translate(x + this.width * 0.5, y + this.height * 0.5);
+            ctx.translate(x, y);
             ctx.rotate(deg);
             ctx.drawImage(this.#img, 0, 0, this.#sourceWidth, this.#sourceHeight, 
                           -this.#width * 0.5, -this.#height * 0.5, 
@@ -276,6 +341,7 @@ class AnimatedSprite extends Sprite {
     #totalFrames;
     #animationStates;
     #activeState;
+    offset;
 
     constructor(src, w, h, scale = 1, staggerFrames = 0, totalFrames = 0) {
         super(src, w, h, scale);
@@ -288,11 +354,11 @@ class AnimatedSprite extends Sprite {
     }
 
     animate(x, y, rotation = 0) {
-        let ctx = GameGlobals.CTX;
+        let ctx = GG.CTX;
         let deg = GMath.toRadians(rotation);
 
         ctx.save();
-        ctx.translate(x + this.width * 0.5, y + this.height * 0.5);
+        ctx.translate(x, y);
         ctx.rotate(deg);
         ctx.drawImage(this.img, 
                       this.sourceWidth * this.#currentFrame, this.sourceHeight * this.#currentRow, 
@@ -301,7 +367,7 @@ class AnimatedSprite extends Sprite {
                       this.width, this.height);
         ctx.restore();
 
-        if(GameGlobals.frame % this.#staggerFrames == 0) {
+        if(GG.frame % this.#staggerFrames == 0) {
             if(this.#currentFrame < this.#totalFrames) this.#currentFrame++;
             else this.#currentFrame = this.#startFrame;
         }
@@ -331,8 +397,8 @@ class AnimatedSprite extends Sprite {
     }
 
     get activeState() { return this.#animationStates[this.#activeState]; }
-
     get animationStates() { return this.#animationStates; }
+    get currentFrame() { return this.#currentFrame; }
 
 }
 
@@ -348,10 +414,10 @@ class Player {
     #maxRotation;
     #isAccelerating;
 
-    pos = { x : 0, y : 0 };
+    pos;
 
     constructor() {
-        let sprite = GameGlobals.ASSETS.PLAYER_SPRITE;
+        let sprite = GG.ASSETS.SPRITES.PLAYER;
 
         this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7);
         this.#sprite.createAnimationState('iddle', 0, 0, 0, 10);
@@ -360,21 +426,7 @@ class Player {
         this.#sprite.createAnimationState('blinking', 0, -1, 0, 7);
         this.#sprite.setAnimationState('iddle');
 
-        this.#isAccelerating = false;
-
         this.#initSettings();
-    }
-
-    #initSettings() {
-        let settings = GameGlobals.PLAYER_SETTINGS;
-
-        this.#acceleration = settings.acceleration;
-        this.#angle = settings.angle;
-        this.#rotation = settings.rotation;
-        this.#torque = settings.torque;
-        this.#vel = { ...settings.vel };
-        this.#maxVel = settings.maxVel;
-        this.#maxRotation = settings.maxRotation;
     }
 
     update() {
@@ -386,6 +438,21 @@ class Player {
     draw() {
         this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
         //this.#visualizeVelocityVector();
+        //this.#visualizePos();
+    }
+
+    #initSettings() {
+        let settings = GG.PLAYER_SETTINGS;
+
+        this.pos = { x : 0, y : 0 };
+        this.#acceleration = settings.acceleration;
+        this.#angle = settings.angle;
+        this.#rotation = settings.rotation;
+        this.#torque = settings.torque;
+        this.#vel = { ...settings.vel };
+        this.#maxVel = settings.maxVel;
+        this.#maxRotation = settings.maxRotation;
+        this.#isAccelerating = false;
     }
 
     #updateFromInput() {
@@ -454,16 +521,23 @@ class Player {
         this.#initSettings();
     }
 
-    #visualizeVelocityVector () {
-        let posX = this.pos.x + this.#sprite.width * 0.5;
-        let posY = this.pos.y + this.#sprite.height * 0.5;
+    #visualizeVelocityVector(scale = 50) {
+        let posX = this.pos.x;
+        let posY = this.pos.y;
 
-        GameGlobals.CTX.beginPath();
-        GameGlobals.CTX.moveTo(posX, posY);
-        GameGlobals.CTX.lineTo(posX + this.#vel.x * 50, posY + this.#vel.y * 50);
-        GameGlobals.CTX.lineWidth = 2;
-        GameGlobals.CTX.strokeStyle = 'lime';
-        GameGlobals.CTX.stroke();
+        GG.CTX.beginPath();
+        GG.CTX.moveTo(posX, posY);
+        GG.CTX.lineTo(posX + this.#vel.x * scale, posY + this.#vel.y * scale);
+        GG.CTX.lineWidth = 2;
+        GG.CTX.strokeStyle = 'lime';
+        GG.CTX.stroke();
+    }
+
+    #visualizePos() {
+        GG.CTX.beginPath();
+        GG.CTX.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
+        GG.CTX.fillStyle = 'lime';
+        GG.CTX.fill();
     }
 
     get vel() { return this.#vel; }
@@ -476,18 +550,63 @@ class Player {
 
 }
 
+class Projectile {
+
+    pos;
+    #angle;
+    #vel;
+    #speed;
+    #sprite;
+    #sound;
+
+    constructor(x, y, a) {
+        let sprite = GG.ASSETS.SPRITES.PROJECTILE;
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.4, 5, 5);
+        this.#sound = new Audio();
+        this.#sound.src = GG.ASSETS.AUDIO.laser;
+        this.pos = { x : x, y : y };
+        this.pos.x = x;
+        this.pos.y = y;
+        this.#angle = a;
+        this.#vel = { x : 0, y : 0 }
+        this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
+
+        this.#sound.play();
+    }
+
+    update() {
+        this.#vel.x = Math.cos(GMath.toRadians(this.#angle)) * this.#speed;
+        this.#vel.y = Math.sin(GMath.toRadians(this.#angle)) * this.#speed;
+        this.pos.x += this.#vel.x;
+        this.pos.y += this.#vel.y;
+    }
+
+    draw() {
+        this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
+        /*
+        GG.CTX.beginPath();
+        GG.CTX.arc(this.pos.x, this.pos.y, 4, 0, 2 * Math.PI);
+        GG.CTX.fillStyle = 'magenta';
+        GG.CTX.fill();
+        */
+    }
+
+}
+
 const DATA = document.getElementById('data');
 const GAME = new Game();
 const run = () => {
     GAME.update();
-    updateData(/*'Frame: ' + GameGlobals.frame +
-               '&nbsp;&nbsp;&nbsp;&nbsp;' + */
+    /*
+    updateData('Frame: ' + GG.frame +
+               '&nbsp;&nbsp;&nbsp;&nbsp;' +
                'vx: ' + GAME.player.vel.x.toFixed(3) + ' | vy: ' + GAME.player.vel.y.toFixed(3) + 
                '&nbsp;&nbsp;&nbsp;&nbsp;' + 
                'px: ' + GAME.player.pos.x.toFixed(2) + '| py: ' + GAME.player.pos.y.toFixed(2) +
                '&nbsp;&nbsp;&nbsp;&nbsp;' + 
                'a: ' + GAME.player.angle.toFixed(2) + ' r: ' + GAME.player.rotation.toFixed(2));
-    GameGlobals.frame++;
+    */
+    GG.frame++;
     requestAnimationFrame(run);
 };
 

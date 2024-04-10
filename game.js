@@ -8,12 +8,34 @@ class GG {
         SPRITES : {
             BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
             PLAYER : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
-            PROJECTILE : { src : 'assets/projectile-spritesheet.png', width : 74, height : 52, },
+            PROJECTILE : { src : 'assets/laser.png', width : 80, height : 48, },
+            ASTEROIDS : { src : 'assets/asteroids-s.png', width : 64, height : 64,
+                          variations : {
+                                1 :  { row : 0, col : 0 },
+                                2 :  { row : 0, col : 1 },
+                                3 :  { row : 0, col : 2 },
+                                4 :  { row : 0, col : 3 },
+                                5 :  { row : 1, col : 0 },
+                                6 :  { row : 1, col : 1 },
+                                7 :  { row : 1, col : 2 },
+                                8 :  { row : 1, col : 3 },
+                                9 :  { row : 2, col : 0 },
+                                10 : { row : 2, col : 1 },
+                                11 : { row : 2, col : 2 },
+                                12 : { row : 2, col : 3 }
+                            }
+            },
         }, 
         AUDIO : { 
             music : 'assets/track1.mp3',
             laser : 'assets/laser.mp3',
         },
+    }
+    static SETTINGS = {
+        maxAsteroids : 6,
+        showBoxes : false,
+        showPlayerVector : false,
+        showPlayerPos : false,
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.04,
@@ -23,7 +45,7 @@ class GG {
         vel : { x : 0, y : 0 },
         maxVel : 3,
         maxRotation : 3,
-        projectileSpeed : 15,
+        projectileSpeed : 20,
     }
 
     static frame = 0;
@@ -156,6 +178,18 @@ class GMath {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
+    static randomInt(min, max) {
+        if(min === max) return min;
+        min = Math.ceil(min);
+        max = Math.floor(max);
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    static randomFloat(min, max) {
+        if(min === max) return min;
+        return Math.random() * (max - min) + min;
+    }
+
 }
 
 class Game {
@@ -164,6 +198,7 @@ class Game {
     #player;
     #playerSpriteOffset;
     #projectiles;
+    #asteroids;
     #audio;
     
     constructor() {
@@ -174,6 +209,28 @@ class Game {
 
     #initGame() {
         let starsBG = GG.ASSETS.SPRITES.BACKGROUND;
+        let sbb = 10; //Screen boundaries buffer
+        let asb = { //Asteroid spawn boundaries
+            0 : { 
+                x : { min : 0, max : GG.SCREEN_WIDTH },
+                y : { min : -sbb, max : -sbb },
+            },
+
+            1 : {
+                x : { min : GG.SCREEN_WIDTH + sbb, max : GG.SCREEN_WIDTH + sbb },
+                y : { min : 0, max : GG.SCREEN_HEIGHT }
+            },
+
+            2 : {
+                x : { min : 0, max : GG.SCREEN_WIDTH},
+                y : { min : GG.SCREEN_HEIGHT + sbb, max : GG.SCREEN_HEIGHT + sbb }
+            },
+
+            3 : {
+                x : { min : -sbb, max : -sbb },
+                y : { min : 0, max : GG.SCREEN_HEIGHT }
+            }
+        }
         
         this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
@@ -181,7 +238,39 @@ class Game {
         this.#player.pos.x = GG.SCREEN_WIDTH * 0.5;
         this.#player.pos.y = GG.SCREEN_HEIGHT * 0.5;
         this.#playerSpriteOffset = this.#player.width * 0.5;
+        
         this.#projectiles = [];
+
+        this.#asteroids = [];
+        for(let i = 0; i < GG.SETTINGS.maxAsteroids; i++) {
+            let side = GMath.randomInt(0, 3);
+            let scale = GMath.randomFloat(0.5, 1.9);
+            let x = GMath.randomInt(asb[side].x.min, asb[side].x.max);
+            let y = GMath.randomInt(asb[side].y.min, asb[side].y.max);
+            let vx, vy;
+
+            switch(side) {
+                case 0 :
+                    vx = 0;
+                    vy = GMath.randomFloat(0.5, 1);
+                    break;
+                case 1 :
+                    vx = GMath.randomFloat(-0.5, -1);
+                    vy = 0;
+                    break;
+                case 2 :
+                    vx = 0;
+                    vy = GMath.randomFloat(-0.5, -1);
+                    break;
+                case 3 :
+                    vx = GMath.randomFloat(0.5, 1);
+                    vy = 0;
+                    break;
+            }
+            console.log(`Generating Asteroid at side ${side}: ${x},${y} with v = ${vx}, ${vy}`);
+            this.#asteroids[i] = new Asteroid(x, y, vx, vy, scale);
+        }
+        console.log(this.#asteroids);
     }
 
     #initInput() {
@@ -198,9 +287,9 @@ class Game {
         
         //Gameplay
         Input.once(' ', () => {
-            let p = new Projectile(this.#player.pos.x, 
-                                   this.#player.pos.y, 
-                                   this.#player.angle);
+            let p = new Projectile(this.#player.pos, 
+                                   this.#player.angle,
+                                   this.#player.vel);
             this.#projectiles.push(p);
         });
 
@@ -234,6 +323,7 @@ class Game {
         this.draw();
         this.#projectileLogic();
         this.#playerLogic();
+        this.#asteroidsLogic();
     }
 
     draw() {
@@ -275,6 +365,27 @@ class Game {
         }
     }
 
+    #asteroidsLogic() {
+        for(let i = 0; i < this.#asteroids.length; i++) {
+            let a = this.#asteroids[i];
+            this.#asteroids[i].update();
+
+            if(a.pos.x > GG.SCREEN_WIDTH + a.sprite.width) {
+                a.pos.x = 0 - a.sprite.width;
+            } else if (a.pos.x  < 0 - a.sprite.width) {
+                a.pos.x = GG.SCREEN_WIDTH + a.sprite.width;
+            }
+    
+            if(a.pos.y > GG.SCREEN_HEIGHT +  a.sprite.height) {
+                a.pos.y = 0 -  a.sprite.height;
+            } else if (a.pos.y < 0 - a.sprite.height) {
+                a.pos.y = GG.SCREEN_HEIGHT + a.sprite.height;
+            }
+
+            this.#asteroids[i].draw();
+        }
+    }
+
     get player() { return this.#player; }
     get proyectiles() { return this.#projectiles; }
 
@@ -289,14 +400,14 @@ class Sprite {
     #height;
     #scale;
 
-    constructor(src, w, h, scale = 1) {
+    constructor(src, w, h, scale) {
         this.#img = new Image();
         this.#img.src = src;
         this.#sourceWidth = w;
         this.#sourceHeight = h;
-        this.#width = w * scale;
-        this.#height = h * scale;
-        this.#scale = scale;
+        this.#scale = scale || 1;
+        this.#width = w * this.scale;
+        this.#height = h * this.scale;
     }
 
     draw(x, y, rotation) {
@@ -314,7 +425,17 @@ class Sprite {
             ctx.restore();
             return;
         }
-        ctx.drawImage(this.#img, x, y, this.#width, this.#height);
+        ctx.drawImage(this.#img, 0, 0, this.#width, this.#height);
+    }
+
+    drawFromSheet(x, y, row, col, rotation = 0) {
+        let ctx = GG.CTX;
+
+        ctx.drawImage(this.img, 
+                      col * this.sourceWidth, row * this.sourceHeight, 
+                      this.sourceWidth, this.sourceHeight,
+                      x, y,
+                      this.width, this.height);
     }
 
     get img() { return this.#img; }
@@ -341,7 +462,6 @@ class AnimatedSprite extends Sprite {
     #totalFrames;
     #animationStates;
     #activeState;
-    offset;
 
     constructor(src, w, h, scale = 1, staggerFrames = 0, totalFrames = 0) {
         super(src, w, h, scale);
@@ -371,8 +491,6 @@ class AnimatedSprite extends Sprite {
             if(this.#currentFrame < this.#totalFrames) this.#currentFrame++;
             else this.#currentFrame = this.#startFrame;
         }
-
-        return;
     }
 
     createAnimationState(name, row, startFrame, totalFrames, staggerFrames) {
@@ -413,23 +531,29 @@ class Player {
     #maxVel;
     #maxRotation;
     #isAccelerating;
+    #collisionBox;
 
     pos;
 
     constructor() {
         let sprite = GG.ASSETS.SPRITES.PLAYER;
 
-        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7);
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.8);
         this.#sprite.createAnimationState('iddle', 0, 0, 0, 10);
-        this.#sprite.createAnimationState('startup', 0, 0, 3, 10);
         this.#sprite.createAnimationState('running', 0, 3, 6, 10);
         this.#sprite.createAnimationState('blinking', 0, -1, 0, 7);
         this.#sprite.setAnimationState('iddle');
-
         this.#initSettings();
     }
 
     update() {
+        this.#collisionBox = {
+            x : this.pos.x - this.#sprite.width * 0.5,
+            y : this.pos.y - this.#sprite.height * 0.5,
+            w : this.#sprite.width,
+            h : this.#sprite.height,
+        }
+
         this.#updateFromInput();
         this.#updatePosition();
         this.#updateOrientation();
@@ -437,8 +561,9 @@ class Player {
 
     draw() {
         this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
-        //this.#visualizeVelocityVector();
-        //this.#visualizePos();
+        if(GG.SETTINGS.showPlayerVector) this.#visualizeVelocityVector();
+        if(GG.SETTINGS.showPlayerPos) this.#visualizePos();
+        if(GG.SETTINGS.showBoxes) this.#visualizeBox();
     }
 
     #initSettings() {
@@ -540,6 +665,12 @@ class Player {
         GG.CTX.fill();
     }
 
+    #visualizeBox() {
+        GG.CTX.strokeStyle = 'lime';
+        GG.CTX.strokeRect(this.#collisionBox.x, this.#collisionBox.y, 
+                          this.#collisionBox.w, this.#collisionBox.h);
+    }   
+
     get vel() { return this.#vel; }
     get rotation() { return this.#rotation; }
     get angle() { return this.#angle; }
@@ -559,37 +690,70 @@ class Projectile {
     #sprite;
     #sound;
 
-    constructor(x, y, a) {
+    constructor(pos, a, pv) {
         let sprite = GG.ASSETS.SPRITES.PROJECTILE;
-        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.4, 5, 5);
+        this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, 0.5);
         this.#sound = new Audio();
         this.#sound.src = GG.ASSETS.AUDIO.laser;
-        this.pos = { x : x, y : y };
-        this.pos.x = x;
-        this.pos.y = y;
+        this.pos = { x : pos.x, y : pos.y };
         this.#angle = a;
-        this.#vel = { x : 0, y : 0 }
         this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
-
+        this.#vel = { 
+            x : Math.cos(GMath.toRadians(this.#angle)) * this.#speed + pv.x, 
+            y : Math.sin(GMath.toRadians(this.#angle)) * this.#speed + pv.y, 
+        }
+        
         this.#sound.play();
     }
 
     update() {
-        this.#vel.x = Math.cos(GMath.toRadians(this.#angle)) * this.#speed;
-        this.#vel.y = Math.sin(GMath.toRadians(this.#angle)) * this.#speed;
         this.pos.x += this.#vel.x;
         this.pos.y += this.#vel.y;
     }
 
     draw() {
-        this.#sprite.animate(this.pos.x, this.pos.y, this.#angle);
-        /*
-        GG.CTX.beginPath();
-        GG.CTX.arc(this.pos.x, this.pos.y, 4, 0, 2 * Math.PI);
-        GG.CTX.fillStyle = 'magenta';
-        GG.CTX.fill();
-        */
+        this.#sprite.draw(this.pos.x, this.pos.y, this.#angle);
     }
+
+}
+
+class Asteroid {
+
+    #sprite;
+    #pos;
+    #vel;
+    #variations;
+    #variation;
+
+    constructor(x, y, vx, vy, _scale, variation) {
+        let sprite = GG.ASSETS.SPRITES.ASTEROIDS;
+        let scale = _scale || 1;
+        this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, scale);
+        this.#pos = { x : x, y : y };
+        this.#vel = { x : vx, y : vy };
+        this.#variations = sprite.variations;
+        this.#variation = variation || GMath.randomInt(1, 12);
+    }
+
+    update() {
+        this.#pos.x += this.#vel.x;
+        this.#pos.y += this.#vel.y;
+    }
+
+    draw() {
+        this.#sprite.drawFromSheet(this.#pos.x, this.#pos.y, 
+                                   this.#variations[this.#variation].row,
+                                   this.#variations[this.#variation].col);
+        if(GG.SETTINGS.showBoxes) this.#visualizeBox();
+    }
+
+    #visualizeBox() {
+        GG.CTX.strokeStyle = 'lime';
+        GG.CTX.strokeRect(this.#pos.x, this.#pos.y, this.#sprite.width, this.#sprite.height);
+    }
+
+    get pos() { return this.#pos; }
+    get sprite() { return this.#sprite; }
 
 }
 
@@ -610,8 +774,10 @@ const run = () => {
     requestAnimationFrame(run);
 };
 
+/*
 const updateData = (_data) => {
     DATA.innerHTML = _data;
 };
+*/
 
 run();

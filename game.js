@@ -373,6 +373,11 @@ class Game {
             for(let i = 0; i < this.#explosions.length; i++) {
                 let e = this.#explosions[i];
                 e.draw();
+
+                if(e.sprite.animationDone) {
+                    this.#explosions.splice(i, 1);
+                    i--;
+                }
             }
         }
     }

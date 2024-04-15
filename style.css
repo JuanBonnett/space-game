@@ -26,3 +26,21 @@ body {
     text-align: center;
     color: #fff;
 }
+
+#UI-start {
+    background-image: url('./assets/screenshot.png');
+    background-size: cover;
+    border: solid 2px #fff;
+    background-repeat: no-repeat;
+    position: absolute;
+    width: 800px; height: 800px;
+    z-index: 99;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    -webkit-text-stroke: 1px #fd3884;
+    line-height: 0.5px;
+    font-size: 1.5em;
+}

@@ -4,6 +4,7 @@ class GG {
     static CTX = this.CANVAS.getContext('2d');
     static SCREEN_WIDTH = this.CANVAS.width = 800;
     static SCREEN_HEIGHT = this.CANVAS.height = 800;
+    static SCREEN_CENTER = { x : this.SCREEN_WIDTH * 0.5, y : this.SCREEN_HEIGHT * 0.5 };
     static ASSETS = {
         SPRITES : {
             BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
@@ -25,11 +26,17 @@ class GG {
                                 12 : { row : 2, col : 3 }
                             }
             },
-            EXPLOSION : { src : 'assets/explosion1.png', width : 96, height : 96, },
+            EXPLOSIONS :{
+                1 : { src : 'assets/explosion1.png', width : 96, height : 96, },
+                2 : { src : 'assets/explosion2.png', width : 96, height : 96 },
+                3 : { src : 'assets/explosion3.png', width : 96, height : 96 },
+                4 : { src : 'assets/explosion4.png', width : 96, height : 96 },
+            },
         }, 
         AUDIO : { 
-            music : 'assets/track2.mp3',
+            music : 'assets/track1.mp3',
             laser : 'assets/laser.mp3',
+            playerExplosion : 'assets/explosion.wav',
         },
     }
     static SETTINGS = {
@@ -195,32 +202,52 @@ class GMath {
 
 }
 
+class DOMUI {
+
+    static start = document.getElementById('UI-start');
+
+    static showStartScreen() {
+        this.start.style.display = 'block';
+    }
+
+    static hideStartScreen() { 
+        this.start.style.display = 'none';
+    }
+
+}
+
 class Game {
 
+    #paused;
     #starsBG;
     #player;
     #playerSpriteOffset;
+    #renderPlayer;
     #projectiles;
     #asteroids;
     #explosions;
     #audio;
     
     constructor() {
-        this.#initGame();
-        this.#initInput();
-        this.#initAudio();
-    }
-
-    #initGame() {
         let starsBG = GG.ASSETS.SPRITES.BACKGROUND;
         
         this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
         this.#player = new Player();
-        this.#player.pos.x = GG.SCREEN_WIDTH * 0.5;
-        this.#player.pos.y = GG.SCREEN_HEIGHT * 0.5;
+        this.#player.pos.x = GG.SCREEN_CENTER.x;
+        this.#player.pos.y = GG.SCREEN_CENTER.y;
         this.#playerSpriteOffset = this.#player.width * 0.5;
-        
+        this.#renderPlayer = true;
+
+        this.#paused = true;
+
+        this.#initGame();
+        this.#initInput();
+
+        GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
+    }
+
+    #initGame() {
         this.#projectiles = [];
         /* CODE FOR TESTING WITH INDIVIDUAL ASTEROIDS
         this.#asteroids = [];
@@ -228,16 +255,20 @@ class Game {
         */
         this.#asteroids = AsteroidController.createRandom(GG.SETTINGS.maxAsteroids);
         this.#explosions = [];
-
-        GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
     }
 
     #initInput() {
+        //UI
+        Input.once('enter', () => {
+            this.#paused = false;
+            DOMUI.hideStartScreen();
+            this.#initAudio();
+        });
+
         //Player
         Input.once('r', () => { 
             this.#player.reset();
-            this.#player.pos.x = GG.SCREEN_WIDTH * 0.5;
-            this.#player.pos.y = GG.SCREEN_WIDTH * 0.5;
+            this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
         });
         Input.listen('w');
         Input.keyUp('w', () => this.#player.stopAccel());
@@ -246,6 +277,7 @@ class Game {
         
         //Gameplay
         Input.once(' ', () => {
+            if(this.#paused) return;
             let p = new Projectile(this.#player.pos, 
                                    this.#player.angle,
                                    this.#player.vel);
@@ -265,6 +297,8 @@ class Game {
                 GG.SETTINGS.enableSound = true;
             }
         });
+
+        Input.once('p', () => this.pause());
     }
 
     #initAudio() {
@@ -275,8 +309,10 @@ class Game {
                 sound : new Audio(), 
                 playing : false,
             },
+            playerExplosion : new Audio(),
         };
         this.#audio.music.sound.src = assets.music;
+        this.#audio.playerExplosion.src = assets.playerExplosion;
         if(GG.SETTINGS.enableSound) {
             this.#audio.music.sound.play();
             this.#audio.music.playing = true;
@@ -284,6 +320,7 @@ class Game {
     }
 
     update() {
+        if(this.#paused) return;
         this.draw();
         this.#projectileLogic();
         this.#playerLogic();
@@ -296,7 +333,14 @@ class Game {
         this.#starsBG.draw(0, 0);
     }
 
+    pause() {
+        if(this.#paused) this.#paused = false;
+        else this.#paused = true;
+    }
+
     #playerLogic() {
+        if(!this.#renderPlayer) return;
+
         this.#player.update();
 
         if(this.#player.pos.x > GG.SCREEN_WIDTH + this.#playerSpriteOffset) {
@@ -341,6 +385,11 @@ class Game {
     }
 
     #asteroidsLogic() {
+        if(this.#asteroids.length < GG.SETTINGS.maxAsteroids) {
+            //console.log('NEED TO ADD AN ASTEROID');
+            this.#asteroids.push(AsteroidController.createRandom(1)[0]);
+        }
+
         for(let i = 0; i < this.#asteroids.length; i++) {
             let a = this.#asteroids[i];
             a.update();
@@ -360,8 +409,7 @@ class Game {
 
             //COLLISION WITH PLAYER
             if(a.collisionBox.SATCollides(this.#player.collisionBox)) {
-                this.#player.hasCollided = true;
-                console.log('UHHH COLLISION WITH PLAYER');
+                this.#playerCollidedWithAasteroid();
             }
 
             a.draw();
@@ -380,6 +428,24 @@ class Game {
                 }
             }
         }
+    }
+
+    #playerCollidedWithAasteroid() {
+        if(this.#player.isInvulnerable) return;
+
+        this.#audio.playerExplosion.play();
+        this.#player.hasCollided = true;
+        this.#player.isInvulnerable = true;
+        this.#explosions.push(new Explosion(this.#player.pos.x, this.#player.pos.y, 
+                                            this.#player.sprite.scale * 4, 4));
+        this.#renderPlayer = false;
+        setTimeout(() =>{
+            this.#initGame();
+            this.#renderPlayer = true;
+            this.#player.isInvulnerable = false;
+            this.#player.reset();
+            this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
+        }, 1000);
     }
 
     get player() { return this.#player; }
@@ -563,7 +629,7 @@ class AnimatedSprite extends Sprite {
     get animationDone() { return this.#animationDone; }
 
     set animationDone(val) {
-        if(val !== true || val !== false) return;
+        if(val !== true && val !== false) return;
         this.#animationDone = val;
     }
 
@@ -581,6 +647,7 @@ class Player {
     #maxRotation;
     #isAccelerating;
     #collisionBox;
+    #isInvulnerable;
 
     pos;
 
@@ -724,6 +791,12 @@ class Player {
     get sprite() { return this.#sprite; }
     get isAccelerating() { return this.#isAccelerating; }
     get collisionBox() { return this.#collisionBox; }
+    get isInvulnerable() { return this.#isInvulnerable; }
+
+    set isInvulnerable(val) {
+        if(val !== true && val !== false) return;
+        this.#isInvulnerable = val;
+    }
 
 }
 
@@ -987,8 +1060,9 @@ class Explosion {
     #sprite;
     #rotation;
 
-    constructor(x, y, scale) {
-        let sprite = GG.ASSETS.SPRITES.EXPLOSION;
+    constructor(x, y, scale, _variation) {
+        let variation = _variation || GMath.randomInt(1, 3);
+        let sprite = GG.ASSETS.SPRITES.EXPLOSIONS[variation];
         this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, scale || 1, 1, 64, 8, 8, true);
         this.x = x;
         this.y = y;

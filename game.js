@@ -44,8 +44,9 @@ class GG {
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
-        enableSound : true,
+        enableSound : false,
         antialiasing : false,
+        projectilesPoolSize  : 10,
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.02,
@@ -204,14 +205,20 @@ class GMath {
 
 class DOMUI {
 
-    static start = document.getElementById('UI-start');
+    static start = document.getElementById('ui-start');
+    static pause = document.getElementById('ui-pause');
 
     static showStartScreen() {
-        this.start.style.display = 'block';
+        this.start.style.display = 'flex';
     }
 
     static hideStartScreen() { 
         this.start.style.display = 'none';
+    }
+
+    static togglePause(paused) {
+        if(paused) this.pause.style.display = 'flex';
+        else this.pause.style.display = 'none';
     }
 
 }
@@ -223,7 +230,6 @@ class Game {
     #player;
     #playerSpriteOffset;
     #renderPlayer;
-    #projectiles;
     #asteroids;
     #explosions;
     #audio;
@@ -248,12 +254,12 @@ class Game {
     }
 
     #initGame() {
-        this.#projectiles = [];
+        ProjectileController.createPool();
         /* CODE FOR TESTING WITH INDIVIDUAL ASTEROIDS
         this.#asteroids = [];
         this.#asteroids[0] = AsteroidController.create(200, 200, 0, 0);
         */
-        this.#asteroids = AsteroidController.createRandom(GG.SETTINGS.maxAsteroids);
+        this.#asteroids = AsteroidController.createPool();
         this.#explosions = [];
     }
 
@@ -278,10 +284,7 @@ class Game {
         //Gameplay
         Input.once(' ', () => {
             if(this.#paused) return;
-            let p = new Projectile(this.#player.pos, 
-                                   this.#player.angle,
-                                   this.#player.vel);
-            this.#projectiles.push(p);
+            ProjectileController.shoot(this.#player.pos, this.#player.angle, this.#player.vel);
         });
 
         //Audio
@@ -336,6 +339,7 @@ class Game {
     pause() {
         if(this.#paused) this.#paused = false;
         else this.#paused = true;
+        DOMUI.togglePause(this.#paused);
     }
 
     #playerLogic() {
@@ -359,14 +363,14 @@ class Game {
     }
 
     #projectileLogic() {
-        for(let i = 0; i < this.#projectiles.length; i++) {
-            let p = this.#projectiles[i];
-            if(p.pos.x > GG.SCREEN_WIDTH || 
-               p.pos.y > GG.SCREEN_HEIGHT ||
-               p.pos.x < 0 || p.pos.y < 0) {
+        let toBeRemoved = [];
+        
+        for(let i = 0; i < ProjectileController.activeProjectiles.length; i++) {
+            let p = ProjectileController.activeProjectiles[i];
 
-                this.#projectiles.splice(i, 1);
-                i--;
+            if(p.pos.x > GG.SCREEN_WIDTH || p.pos.y > GG.SCREEN_HEIGHT ||
+               p.pos.x < 0 || p.pos.y < 0) {
+                toBeRemoved.push(p);
             } else {
                 p.update();
                 p.draw();
@@ -374,20 +378,30 @@ class Game {
                     let a = this.#asteroids[j];
                     if(p.collisionBox.SATCollides(a.collisionBox)) {
                         this.#explosions.push(new Explosion(a.pos.x, a.pos.y, a.sprite.scale * 2));
-                        this.#projectiles.splice(i, 1);
-                        this.#asteroids.splice(j, 1);
-                        i--;
+                        AsteroidController.respawn(a);
+                        toBeRemoved.push(p);
                         break;
                     }
                 }
             }
         }
+
+        if(toBeRemoved.length > 0) console.log(toBeRemoved.length + ' to be removed');
+
+        for(let i = 0; i < toBeRemoved.length; i++) {
+            let p = toBeRemoved[i];
+            ProjectileController.reset(p);
+        }
+
+        ProjectileController.activeProjectiles = ProjectileController.activeProjectiles.filter(
+            (p) => !toBeRemoved.includes(p)
+        );
     }
 
     #asteroidsLogic() {
         if(this.#asteroids.length < GG.SETTINGS.maxAsteroids) {
             //console.log('NEED TO ADD AN ASTEROID');
-            this.#asteroids.push(AsteroidController.createRandom(1)[0]);
+            this.#asteroids.push(AsteroidController.createPool(1)[0]);
         }
 
         for(let i = 0; i < this.#asteroids.length; i++) {
@@ -449,7 +463,6 @@ class Game {
     }
 
     get player() { return this.#player; }
-    get proyectiles() { return this.#projectiles; }
 
 }
 
@@ -810,13 +823,16 @@ class Projectile {
     #sound;
     #collisionBox;
 
-    constructor(pos, a, pv) {
+    constructor() {
         let sprite = GG.ASSETS.SPRITES.PROJECTILE;
         this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, 0.5);
         this.#sound = new Audio();
         this.#sound.src = GG.ASSETS.AUDIO.laser;
-        this.pos = { x : pos.x, y : pos.y };
-        this.#angle = a;
+    }
+
+    init(pos, a, pv) {
+        this.pos = { x : pos.x || 0, y : pos.y || 0 };
+        this.#angle = a || 0;
         this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
         this.#vel = { 
             x : Math.cos(GMath.toRadians(this.#angle)) * this.#speed + pv.x, 
@@ -826,8 +842,6 @@ class Projectile {
                                               this.pos.y - this.#sprite.height * 0.5, 
                                               this.#sprite.width, this.#sprite.height,
                                               0.5);
-        
-        if(GG.SETTINGS.enableSound) this.#sound.play();
     }
 
     update() {
@@ -849,7 +863,38 @@ class Projectile {
                           this.#collisionBox.width, this.#collisionBox.height);
     }  
 
+    playSound() {
+        if(GG.SETTINGS.enableSound) this.#sound.play();
+    }
+
     get collisionBox() { return this.#collisionBox; }
+
+}
+
+class ProjectileController {
+
+    static inactiveProjectiles = [];
+    static activeProjectiles = [];
+
+    static createPool(_number) {
+        let number = _number || GG.SETTINGS.projectilesPoolSize;
+
+        for(let i = 0; i < number; i++) {
+            this.inactiveProjectiles[i] = new Projectile();
+        }
+    }
+
+    static shoot(pos, a, pv) {
+        let p = this.inactiveProjectiles.pop();
+        p.init(pos, a, pv);
+        p.playSound();
+        this.activeProjectiles.push(p);
+    }
+
+    static reset(projectile) {
+        if(!(projectile instanceof Projectile)) return;
+        this.inactiveProjectiles.unshift(projectile);
+    }
 
 }
 
@@ -919,72 +964,96 @@ class Asteroid {
     get sprite() { return this.#sprite; }
     get collisionBox() { return this.#collisionBox; }
 
+    set pos(pos) { this.#pos = pos; }
+    set vel(vel) { this.#vel = vel; }
+    set rotation(val) { this.#rotation = val; }
+
 }
 
 class AsteroidController {
 
     static maxScale = 1.9;
     static minScale = 0.5;
+    static sbb = 100; //Screen boundaries buffer
+    static asb = { //Asteroid spawn boundaries
+        0 : { 
+            x : { min : 0, max : GG.SCREEN_WIDTH },
+            y : { min : -this.sbb, max : -this.sbb },
+        },
 
-    static createRandom(_number) {
+        1 : {
+            x : { min : GG.SCREEN_WIDTH + this.sbb, max : GG.SCREEN_WIDTH + this.sbb },
+            y : { min : 0, max : GG.SCREEN_HEIGHT }
+        },
+
+        2 : {
+            x : { min : 0, max : GG.SCREEN_WIDTH},
+            y : { min : GG.SCREEN_HEIGHT + this.sbb, max : GG.SCREEN_HEIGHT + this.sbb }
+        },
+
+        3 : {
+            x : { min : -this.sbb, max : -this.sbb },
+            y : { min : 0, max : GG.SCREEN_HEIGHT }
+        }
+    };
+
+    static createPool(_number) {
         let number = _number || GG.SETTINGS.maxAsteroids;
         let asteroids = [];
-        let sbb = 100; //Screen boundaries buffer
-        let asb = { //Asteroid spawn boundaries
-            0 : { 
-                x : { min : 0, max : GG.SCREEN_WIDTH },
-                y : { min : -sbb, max : -sbb },
-            },
-
-            1 : {
-                x : { min : GG.SCREEN_WIDTH + sbb, max : GG.SCREEN_WIDTH + sbb },
-                y : { min : 0, max : GG.SCREEN_HEIGHT }
-            },
-
-            2 : {
-                x : { min : 0, max : GG.SCREEN_WIDTH},
-                y : { min : GG.SCREEN_HEIGHT + sbb, max : GG.SCREEN_HEIGHT + sbb }
-            },
-
-            3 : {
-                x : { min : -sbb, max : -sbb },
-                y : { min : 0, max : GG.SCREEN_HEIGHT }
-            }
-        }
 
         for(let i = 0; i < number; i++) {
-            let side = GMath.randomInt(0, 3);
-            let scale = GMath.randomFloat(this.minScale, this.maxScale);
-            let x = GMath.randomInt(asb[side].x.min, asb[side].x.max);
-            let y = GMath.randomInt(asb[side].y.min, asb[side].y.max);
-            let rotation = GMath.randomFloat(-0.5, 0.5);
-            let vx, vy;
-
-            switch(side) {
-                case 0 :
-                    vx = GMath.randomFloat(-0.3, 0.3)
-                    vy = GMath.randomFloat(0.5, 1);
-                    break;
-                case 1 :
-                    vx = GMath.randomFloat(-0.5, -1);
-                    vy = GMath.randomFloat(-0.3, 0.3)
-                    break;
-                case 2 :
-                    vx = GMath.randomFloat(-0.3, 0.3)
-                    vy = GMath.randomFloat(-0.5, -1);
-                    break;
-                case 3 :
-                    vx = GMath.randomFloat(0.5, 1);
-                    vy = GMath.randomFloat(-0.3, 0.3);
-                    break;
-            }
-            asteroids[i] = new Asteroid(x, y, vx, vy, scale, rotation);
+            asteroids[i] = this.createRandom();
         }
         return asteroids;
     }
 
-    static create(x, y, vx, vy) {
-        return new Asteroid(x, y, vx, vy);
+    static createRandom() {
+        let spawn = this.randomizeSpawn();
+        return new Asteroid(spawn.pos.x, spawn.pos.y, spawn.vel.x, spawn.vel.y, 
+                            spawn.scale, spawn.rotation);
+    }
+
+    static randomizeSpawn() {
+        let side = GMath.randomInt(0, 3);
+        let scale = GMath.randomFloat(this.minScale, this.maxScale);
+        let x = GMath.randomInt(this.asb[side].x.min, this.asb[side].x.max);
+        let y = GMath.randomInt(this.asb[side].y.min, this.asb[side].y.max);
+        let rotation = GMath.randomFloat(-0.5, 0.5);
+        let vx, vy;
+
+        switch(side) {
+            case 0 :
+                vx = GMath.randomFloat(-0.3, 0.3)
+                vy = GMath.randomFloat(0.5, 1);
+                break;
+            case 1 :
+                vx = GMath.randomFloat(-0.5, -1);
+                vy = GMath.randomFloat(-0.3, 0.3)
+                break;
+            case 2 :
+                vx = GMath.randomFloat(-0.3, 0.3)
+                vy = GMath.randomFloat(-0.5, -1);
+                break;
+            case 3 :
+                vx = GMath.randomFloat(0.5, 1);
+                vy = GMath.randomFloat(-0.3, 0.3);
+                break;
+        }
+
+        return { 
+            pos : { x : x, y : y },
+            vel : { x : vx, y : vy },
+            rotation : rotation,
+            scale : scale,
+        }
+    }
+
+    static respawn(asteroid) {
+        if(!(asteroid instanceof Asteroid)) return;
+        let spawn = this.randomizeSpawn();
+        asteroid.pos = { x : spawn.pos.x, y : spawn.pos.y };
+        asteroid.vel = { x : spawn.vel.x, y : spawn.vel.y };
+        asteroid.rotation = spawn.rotation;
     }
 
 }
@@ -1079,27 +1148,11 @@ class Explosion {
 
 }
 
-const DATA = document.getElementById('data');
 const GAME = new Game();
 const run = () => {
     GAME.update();
-    /*
-    updateData('Frame: ' + GG.frame +
-               '&nbsp;&nbsp;&nbsp;&nbsp;' +
-               'vx: ' + GAME.player.vel.x.toFixed(3) + ' | vy: ' + GAME.player.vel.y.toFixed(3) + 
-               '&nbsp;&nbsp;&nbsp;&nbsp;' + 
-               'px: ' + GAME.player.pos.x.toFixed(2) + '| py: ' + GAME.player.pos.y.toFixed(2) +
-               '&nbsp;&nbsp;&nbsp;&nbsp;' + 
-               'a: ' + GAME.player.angle.toFixed(2) + ' r: ' + GAME.player.rotation.toFixed(2));
-    */
     GG.frame++;
     requestAnimationFrame(run);
 };
-
-/*
-const updateData = (_data) => {
-    DATA.innerHTML = _data;
-};
-*/
 
 run();

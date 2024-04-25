@@ -27,11 +27,7 @@ body {
     color: #fff;
 }
 
-#UI-start {
-    background-image: url('./assets/screenshot.png');
-    background-size: cover;
-    border: solid 2px #fff;
-    background-repeat: no-repeat;
+.ui-layer {
     position: absolute;
     width: 800px; height: 800px;
     z-index: 99;
@@ -40,7 +36,33 @@ body {
     align-items: center;
     justify-content: center;
     color: #fff;
-    -webkit-text-stroke: 1px #fd3884;
-    line-height: 0.5px;
-    font-size: 1.5em;
+    -webkit-text-stroke: 0.3px #fd3884;
+    font-weight: bolder;
+}
+
+#ui-start {
+    background-image: url('./assets/bg.png');
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+#ui-start h1 {
+    font-size: 3em;
+    color: #fd3884;
+}
+
+#ui-start p {
+    line-height: 1.5em;
+    margin: 0px;
+    padding: 0px;
+    font-size: 1.8em;
+}
+
+#ui-pause {
+    display: none;
+}
+
+#ui-pause h1 {
+    font-size: 3em;
+    color: #fff;
 }

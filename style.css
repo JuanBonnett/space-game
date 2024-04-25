@@ -66,3 +66,24 @@ body {
     font-size: 3em;
     color: #fff;
 }
+
+#ui-score {
+    font-size: 1.2em;
+}
+
+#ui-score #score-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+#ui-score #score {
+    position: absolute;
+    top: 3%; left: 3%;
+    color: #fff;
+}
+
+#ui-score #record {
+    font-size: 0.8em;
+    color: #ff6eec;
+}

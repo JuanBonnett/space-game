@@ -8,6 +8,7 @@ class GG {
     static ASSETS = {
         SPRITES : {
             BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
+            P_BACKGROUND : { src : 'assets/p-bg.png', width : 1600, height : 800, },
             PLAYER : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
             PROJECTILE : { src : 'assets/laser.png', width : 80, height : 48, },
             ASTEROIDS : { src : 'assets/asteroids-s.png', width : 64, height : 64,
@@ -41,12 +42,18 @@ class GG {
     }
     static SETTINGS = {
         maxAsteroids : 10,
+        initMaxAsteroidVel : 1,
+        initMinAsteroidVel : 0.2,
+        maxAsteroidVel : 1,
+        minAsteroidVel : 0.2,
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
         enableSound : false,
         antialiasing : false,
         projectilesPoolSize  : 10,
+        baseAsteroidScore : 100,
+        scoreSlope : 0.000000005,
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.02,
@@ -207,6 +214,8 @@ class DOMUI {
 
     static start = document.getElementById('ui-start');
     static pause = document.getElementById('ui-pause');
+    static score = document.getElementById('score-count');
+    static record = document.getElementById('record-count');
 
     static showStartScreen() {
         this.start.style.display = 'flex';
@@ -221,6 +230,19 @@ class DOMUI {
         else this.pause.style.display = 'none';
     }
 
+    static updateScore(score) {
+        let s = parseInt(score);
+        this.score.innerText = String(s).padStart(10, '0');
+    }
+
+    static updateRecord(record) {
+        let r = parseInt(record);
+        this.record.innerText = String(r).padStart(10, '0');
+    }
+
+    static getScore() { return parseInt(this.score.innerText); }
+    static getRecord() { return parseInt(this.record.innerText); }
+
 }
 
 class Game {
@@ -233,9 +255,11 @@ class Game {
     #asteroids;
     #explosions;
     #audio;
+    #score;
+    #record;
     
     constructor() {
-        let starsBG = GG.ASSETS.SPRITES.BACKGROUND;
+        let starsBG = GG.ASSETS.SPRITES.P_BACKGROUND;
         
         this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
@@ -246,6 +270,8 @@ class Game {
         this.#renderPlayer = true;
 
         this.#paused = true;
+        this.#score = 0;
+        this.#record = 0;
 
         this.#initGame();
         this.#initInput();
@@ -329,6 +355,11 @@ class Game {
         this.#playerLogic();
         this.#asteroidsLogic();
         this.#explosionsLogic();
+
+        GG.SETTINGS.maxAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
+        GG.SETTINGS.minAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
+
+        GG.frame++;
     }
 
     draw() {
@@ -380,13 +411,13 @@ class Game {
                         this.#explosions.push(new Explosion(a.pos.x, a.pos.y, a.sprite.scale * 2));
                         AsteroidController.respawn(a);
                         toBeRemoved.push(p);
+                        this.#score += GG.SETTINGS.baseAsteroidScore - a.sprite.scale;
+                        DOMUI.updateScore(this.#score);
                         break;
                     }
                 }
             }
         }
-
-        if(toBeRemoved.length > 0) console.log(toBeRemoved.length + ' to be removed');
 
         for(let i = 0; i < toBeRemoved.length; i++) {
             let p = toBeRemoved[i];
@@ -447,19 +478,25 @@ class Game {
     #playerCollidedWithAasteroid() {
         if(this.#player.isInvulnerable) return;
 
-        this.#audio.playerExplosion.play();
+        if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
         this.#player.hasCollided = true;
         this.#player.isInvulnerable = true;
         this.#explosions.push(new Explosion(this.#player.pos.x, this.#player.pos.y, 
                                             this.#player.sprite.scale * 4, 4));
         this.#renderPlayer = false;
+        if(this.#score > this.#record) this.#record = this.#score;
+        this.#score = 0
+        DOMUI.updateScore(0);
+        DOMUI.updateRecord(this.#record);
+        GG.SETTINGS.maxAsteroidVel = GG.SETTINGS.initMaxAsteroidVel;
+        GG.SETTINGS.minAsteroidVel = GG.SETTINGS.initMinAsteroidVel;
         setTimeout(() =>{
             this.#initGame();
             this.#renderPlayer = true;
             this.#player.isInvulnerable = false;
             this.#player.reset();
             this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
-        }, 1000);
+        }, 3000);
     }
 
     get player() { return this.#player; }
@@ -972,6 +1009,7 @@ class Asteroid {
 
 class AsteroidController {
 
+    static asteroids = [];
     static maxScale = 1.9;
     static minScale = 0.5;
     static sbb = 100; //Screen boundaries buffer
@@ -999,12 +1037,11 @@ class AsteroidController {
 
     static createPool(_number) {
         let number = _number || GG.SETTINGS.maxAsteroids;
-        let asteroids = [];
 
         for(let i = 0; i < number; i++) {
-            asteroids[i] = this.createRandom();
+            this.asteroids[i] = this.createRandom();
         }
-        return asteroids;
+        return this.asteroids;
     }
 
     static createRandom() {
@@ -1014,29 +1051,30 @@ class AsteroidController {
     }
 
     static randomizeSpawn() {
+        let st = GG.SETTINGS;
         let side = GMath.randomInt(0, 3);
         let scale = GMath.randomFloat(this.minScale, this.maxScale);
         let x = GMath.randomInt(this.asb[side].x.min, this.asb[side].x.max);
         let y = GMath.randomInt(this.asb[side].y.min, this.asb[side].y.max);
-        let rotation = GMath.randomFloat(-0.5, 0.5);
+        let rotation = GMath.randomFloat(-1, 1);
         let vx, vy;
 
         switch(side) {
             case 0 :
-                vx = GMath.randomFloat(-0.3, 0.3)
-                vy = GMath.randomFloat(0.5, 1);
+                vx = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
+                vy = GMath.randomFloat(st.minAsteroidVel, st.maxAsteroidVel);
                 break;
             case 1 :
-                vx = GMath.randomFloat(-0.5, -1);
-                vy = GMath.randomFloat(-0.3, 0.3)
+                vx = GMath.randomFloat(-st.minAsteroidVel, -st.maxAsteroidVel);
+                vy = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
                 break;
             case 2 :
-                vx = GMath.randomFloat(-0.3, 0.3)
-                vy = GMath.randomFloat(-0.5, -1);
+                vx = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
+                vy = GMath.randomFloat(-st.minAsteroidVel, -st.maxAsteroidVel);
                 break;
             case 3 :
-                vx = GMath.randomFloat(0.5, 1);
-                vy = GMath.randomFloat(-0.3, 0.3);
+                vx = GMath.randomFloat(st.minAsteroidVel, st.maxAsteroidVel);
+                vy = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
                 break;
         }
 
@@ -1151,7 +1189,6 @@ class Explosion {
 const GAME = new Game();
 const run = () => {
     GAME.update();
-    GG.frame++;
     requestAnimationFrame(run);
 };
 

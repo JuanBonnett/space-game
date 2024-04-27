@@ -8,7 +8,8 @@ class GG {
     static ASSETS = {
         SPRITES : {
             BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
-            P_BACKGROUND : { src : 'assets/p-bg.png', width : 1600, height : 800, },
+            P_BACKGROUND : { src : 'assets/p-bg.png', width : 800, height : 1600, },
+            P_DUST : { src : 'assets/p-dust.png', width : 800, height : 1600, },
             PLAYER : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
             PROJECTILE : { src : 'assets/laser.png', width : 80, height : 48, },
             ASTEROIDS : { src : 'assets/asteroids-s.png', width : 64, height : 64,
@@ -49,7 +50,7 @@ class GG {
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
-        enableSound : false,
+        enableSound : true,
         antialiasing : false,
         projectilesPoolSize  : 10,
         baseAsteroidScore : 100,
@@ -248,7 +249,7 @@ class DOMUI {
 class Game {
 
     #paused;
-    #starsBG;
+    #starsBG; #dustBG;
     #player;
     #playerSpriteOffset;
     #renderPlayer;
@@ -260,8 +261,11 @@ class Game {
     
     constructor() {
         let starsBG = GG.ASSETS.SPRITES.P_BACKGROUND;
+        let dustBG = GG.ASSETS.SPRITES.P_DUST;
         
-        this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
+        this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
+        this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
+        //this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
         this.#player = new Player();
         this.#player.pos.x = GG.SCREEN_CENTER.x;
@@ -351,11 +355,14 @@ class Game {
     update() {
         if(this.#paused) return;
         this.draw();
+        this.#starsBG.update();
+        this.#dustBG.update();
+
         this.#projectileLogic();
         this.#playerLogic();
         this.#asteroidsLogic();
         this.#explosionsLogic();
-
+        
         GG.SETTINGS.maxAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
         GG.SETTINGS.minAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
 
@@ -364,7 +371,7 @@ class Game {
 
     draw() {
         GG.CTX.clearRect(0, 0, GG.SCREEN_WIDTH, GG.SCREEN_HEIGHT);
-        this.#starsBG.draw(0, 0);
+        //this.#starsBG.draw(0, 0);
     }
 
     pause() {
@@ -574,6 +581,46 @@ class Sprite {
         this.#scale = scale; 
         this.#width = this.#sourceWidth * scale;
         this.#height = this.#sourceHeight * scale;
+    }
+
+}
+
+class ParallaxBackground {
+
+    #img;
+    #width;
+    #height;
+    #rate;
+    #x1; #y1; #x2; #y2;
+
+    constructor(src, w, h, rate) {
+        this.#img = new Image();
+        this.#img.src = src;
+        this.#width = w;
+        this.#height= h;
+        this.#rate = rate || 1;
+        this.#x1 = this.#x2 = 0;
+        this.#y1 = 0;
+        this.#y2 = this.#y1 - this.#height;
+    }
+
+    update() {
+        this.draw();
+        if(this.#y1 > GG.SCREEN_HEIGHT) this.#y1 = this.#y2 - this.#height;
+        else this.#y1 += this.#rate;
+        
+        if(this.#y2 > GG.SCREEN_HEIGHT) this.#y2 = this.#y1 - this.#height;
+        else this.#y2 += this.#rate;
+    }
+
+    draw() {
+        GG.CTX.drawImage(this.#img, this.#x1, this.#y1, this.#width, this.#height);
+        GG.CTX.drawImage(this.#img, this.#x2, this.#y2, this.#width, this.#height);
+    }
+
+    set rate(val) { 
+        if (typeof val !== 'number') return; 
+        this.#rate = val; 
     }
 
 }

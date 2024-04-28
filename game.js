@@ -42,7 +42,7 @@ class GG {
         },
     }
     static SETTINGS = {
-        maxAsteroids : 10,
+        asteroidPoolSize : 10,
         initMaxAsteroidVel : 1,
         initMinAsteroidVel : 0.2,
         maxAsteroidVel : 1,
@@ -265,7 +265,6 @@ class Game {
         
         this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
         this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
-        //this.#starsBG = new Sprite(starsBG.src, starsBG.width, starsBG.height);
 
         this.#player = new Player();
         this.#player.pos.x = GG.SCREEN_CENTER.x;
@@ -284,7 +283,7 @@ class Game {
     }
 
     #initGame() {
-        ProjectileController.createPool();
+        ProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
         /* CODE FOR TESTING WITH INDIVIDUAL ASTEROIDS
         this.#asteroids = [];
         this.#asteroids[0] = AsteroidController.create(200, 200, 0, 0);
@@ -437,7 +436,7 @@ class Game {
     }
 
     #asteroidsLogic() {
-        if(this.#asteroids.length < GG.SETTINGS.maxAsteroids) {
+        if(this.#asteroids.length < GG.SETTINGS.asteroidPoolSize) {
             //console.log('NEED TO ADD AN ASTEROID');
             this.#asteroids.push(AsteroidController.createPool(1)[0]);
         }
@@ -960,9 +959,7 @@ class ProjectileController {
     static inactiveProjectiles = [];
     static activeProjectiles = [];
 
-    static createPool(_number) {
-        let number = _number || GG.SETTINGS.projectilesPoolSize;
-
+    static createPool(number) {
         for(let i = 0; i < number; i++) {
             this.inactiveProjectiles[i] = new Projectile();
         }
@@ -1082,9 +1079,7 @@ class AsteroidController {
         }
     };
 
-    static createPool(_number) {
-        let number = _number || GG.SETTINGS.maxAsteroids;
-
+    static createPool(number) {
         for(let i = 0; i < number; i++) {
             this.asteroids[i] = this.createRandom();
         }

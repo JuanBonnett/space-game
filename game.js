@@ -253,7 +253,6 @@ class Game {
     #player;
     #playerSpriteOffset;
     #renderPlayer;
-    #asteroids;
     #explosions;
     #audio;
     #score;
@@ -284,11 +283,7 @@ class Game {
 
     #initGame() {
         ProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
-        /* CODE FOR TESTING WITH INDIVIDUAL ASTEROIDS
-        this.#asteroids = [];
-        this.#asteroids[0] = AsteroidController.create(200, 200, 0, 0);
-        */
-        this.#asteroids = AsteroidController.createPool();
+        AsteroidController.createPool();
         this.#explosions = [];
     }
 
@@ -370,7 +365,6 @@ class Game {
 
     draw() {
         GG.CTX.clearRect(0, 0, GG.SCREEN_WIDTH, GG.SCREEN_HEIGHT);
-        //this.#starsBG.draw(0, 0);
     }
 
     pause() {
@@ -411,8 +405,8 @@ class Game {
             } else {
                 p.update();
                 p.draw();
-                for(let j = 0; j < this.#asteroids.length; j++) {
-                    let a = this.#asteroids[j];
+                for(let j = 0; j < AsteroidController.asteroids.length; j++) {
+                    let a = AsteroidController.asteroids[j];
                     if(p.collisionBox.SATCollides(a.collisionBox)) {
                         this.#explosions.push(new Explosion(a.pos.x, a.pos.y, a.sprite.scale * 2));
                         AsteroidController.respawn(a);
@@ -436,16 +430,14 @@ class Game {
     }
 
     #asteroidsLogic() {
-        if(this.#asteroids.length < GG.SETTINGS.asteroidPoolSize) {
-            //console.log('NEED TO ADD AN ASTEROID');
-            this.#asteroids.push(AsteroidController.createPool(1)[0]);
+        if(AsteroidController.asteroids.length < GG.SETTINGS.asteroidPoolSize) {
+            AsteroidController.asteroids.push(AsteroidController.createRandom());
         }
 
-        for(let i = 0; i < this.#asteroids.length; i++) {
-            let a = this.#asteroids[i];
+        for(let i = 0; i < AsteroidController.asteroids.length; i++) {
+            let a = AsteroidController.asteroids[i];
             a.update();
 
-            //SCREEN BOUNDARIES
             if(a.pos.x > GG.SCREEN_WIDTH + a.sprite.width) {
                 a.pos.x = 0 - a.sprite.width;
             } else if (a.pos.x  < 0 - a.sprite.width) {
@@ -458,7 +450,6 @@ class Game {
                 a.pos.y = GG.SCREEN_HEIGHT + a.sprite.height;
             }
 
-            //COLLISION WITH PLAYER
             if(a.collisionBox.SATCollides(this.#player.collisionBox)) {
                 this.#playerCollidedWithAasteroid();
             }
@@ -485,15 +476,10 @@ class Game {
         if(this.#player.isInvulnerable) return;
 
         if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
-        this.#player.hasCollided = true;
         this.#player.isInvulnerable = true;
         this.#explosions.push(new Explosion(this.#player.pos.x, this.#player.pos.y, 
                                             this.#player.sprite.scale * 4, 4));
         this.#renderPlayer = false;
-        if(this.#score > this.#record) this.#record = this.#score;
-        this.#score = 0
-        DOMUI.updateScore(0);
-        DOMUI.updateRecord(this.#record);
         GG.SETTINGS.maxAsteroidVel = GG.SETTINGS.initMaxAsteroidVel;
         GG.SETTINGS.minAsteroidVel = GG.SETTINGS.initMinAsteroidVel;
         setTimeout(() =>{
@@ -502,10 +488,58 @@ class Game {
             this.#player.isInvulnerable = false;
             this.#player.reset();
             this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
+            this.#resetScore();
         }, 3000);
     }
 
+    #resetScore() {
+        if(this.#score > this.#record) this.#record = this.#score;
+        this.#score = 0
+        DOMUI.updateScore(0);
+        DOMUI.updateRecord(this.#record);
+    }
+
     get player() { return this.#player; }
+
+}
+
+class ParallaxBackground {
+
+    #img;
+    #width;
+    #height;
+    #rate;
+    #x1; #y1; #x2; #y2;
+
+    constructor(src, w, h, rate) {
+        this.#img = new Image();
+        this.#img.src = src;
+        this.#width = w;
+        this.#height= h;
+        this.#rate = rate || 1;
+        this.#x1 = this.#x2 = 0;
+        this.#y1 = 0;
+        this.#y2 = this.#y1 - this.#height;
+    }
+
+    update() {
+        this.draw();
+        if(this.#y1 > GG.SCREEN_HEIGHT) this.#y1 = this.#y2 - this.#height;
+        else this.#y1 += this.#rate;
+        
+        if(this.#y2 > GG.SCREEN_HEIGHT) this.#y2 = this.#y1 - this.#height;
+        else this.#y2 += this.#rate;
+    }
+
+    draw() {
+        GG.CTX.drawImage(this.#img, this.#x1, this.#y1, this.#width, this.#height);
+        GG.CTX.drawImage(this.#img, this.#x2, this.#y2, this.#width, this.#height);
+    }
+
+    set rate(val) { 
+        if (typeof val !== 'number') return; 
+        this.#rate = val; 
+    }
 
 }
 
@@ -580,46 +614,6 @@ class Sprite {
         this.#scale = scale; 
         this.#width = this.#sourceWidth * scale;
         this.#height = this.#sourceHeight * scale;
-    }
-
-}
-
-class ParallaxBackground {
-
-    #img;
-    #width;
-    #height;
-    #rate;
-    #x1; #y1; #x2; #y2;
-
-    constructor(src, w, h, rate) {
-        this.#img = new Image();
-        this.#img.src = src;
-        this.#width = w;
-        this.#height= h;
-        this.#rate = rate || 1;
-        this.#x1 = this.#x2 = 0;
-        this.#y1 = 0;
-        this.#y2 = this.#y1 - this.#height;
-    }
-
-    update() {
-        this.draw();
-        if(this.#y1 > GG.SCREEN_HEIGHT) this.#y1 = this.#y2 - this.#height;
-        else this.#y1 += this.#rate;
-        
-        if(this.#y2 > GG.SCREEN_HEIGHT) this.#y2 = this.#y1 - this.#height;
-        else this.#y2 += this.#rate;
-    }
-
-    draw() {
-        GG.CTX.drawImage(this.#img, this.#x1, this.#y1, this.#width, this.#height);
-        GG.CTX.drawImage(this.#img, this.#x2, this.#y2, this.#width, this.#height);
-    }
-
-    set rate(val) { 
-        if (typeof val !== 'number') return; 
-        this.#rate = val; 
     }
 
 }
@@ -1080,10 +1074,10 @@ class AsteroidController {
     };
 
     static createPool(number) {
+        if(this.asteroids.length > 0) this.asteroids = [];
         for(let i = 0; i < number; i++) {
             this.asteroids[i] = this.createRandom();
         }
-        return this.asteroids;
     }
 
     static createRandom() {
@@ -1146,7 +1140,6 @@ class CollisionBox {
     #height;
     #scale
     x; y; 
-    hasCollided;
 
     constructor(x, y, w, h, scale) {
         this.#oWidth = w;
@@ -1156,7 +1149,6 @@ class CollisionBox {
         this.#height = h * this.#scale;
         this.x = x + (this.#oWidth - this.#width) * 0.5;
         this.y = y + (this.#oHeight - this.#height) * 0.5;
-        this.hasCollided = false;
     }
 
     translate(x, y) {

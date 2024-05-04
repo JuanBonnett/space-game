@@ -2,18 +2,18 @@ class GG {
 
     static CANVAS = document.getElementById('game-canvas');
     static CTX = this.CANVAS.getContext('2d');
-    static SCREEN_WIDTH = this.CANVAS.width = 800;
-    static SCREEN_HEIGHT = this.CANVAS.height = 800;
+    static SCREEN_WIDTH = this.CANVAS.width = window.innerWidth;
+    static SCREEN_HEIGHT = this.CANVAS.height = window.innerHeight;
     static SCREEN_CENTER = { x : this.SCREEN_WIDTH * 0.5, y : this.SCREEN_HEIGHT * 0.5 };
     static ASSETS = {
         SPRITES : {
-            BACKGROUND : { src : 'assets/bg.png', width : 800, height : 800, },
-            P_BACKGROUND : { src : 'assets/p-bg.png', width : 800, height : 1600, },
-            P_DUST : { src : 'assets/p-dust.png', width : 800, height : 1600, },
-            PLAYER : { src : 'assets/ship-spritesheet.png', width : 100, height : 100, },
-            PROJECTILE : { src : 'assets/laser.png', width : 80, height : 48, },
-            ASTEROIDS : { src : 'assets/asteroids-s.png', width : 64, height : 64,
-                          variations : {
+            BACKGROUND :   { src : 'assets/bg.png',               width : 1920, height : 3000, },
+            P_BACKGROUND : { src : 'assets/p-bg.png',             width : 1920, height : 3000, },
+            P_DUST :       { src : 'assets/p-dust.png',           width : 3000, height : 2300, },
+            PLAYER :       { src : 'assets/ship-spritesheet.png', width : 100,  height : 100, },
+            PROJECTILE :   { src : 'assets/laser.png',            width : 80,   height : 48, },
+            ASTEROIDS :    { src : 'assets/asteroids-s.png',      width : 64,   height : 64,
+                             variations : {
                                 1 :  { row : 0, col : 0 },
                                 2 :  { row : 0, col : 1 },
                                 3 :  { row : 0, col : 2 },
@@ -42,7 +42,7 @@ class GG {
         },
     }
     static SETTINGS = {
-        asteroidPoolSize : 10,
+        asteroidPoolSize : 20,
         initMaxAsteroidVel : 1,
         initMinAsteroidVel : 0.2,
         maxAsteroidVel : 1,
@@ -54,7 +54,7 @@ class GG {
         antialiasing : false,
         projectilesPoolSize  : 10,
         baseAsteroidScore : 100,
-        scoreSlope : 0.000000005,
+        scoreSlope : 0.00000005,
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.02,

@@ -12,6 +12,7 @@ class GG {
             P_DUST :       { src : 'assets/p-dust.png',           width : 3000, height : 2300, },
             PLAYER :       { src : 'assets/ship-spritesheet.png', width : 100,  height : 100, },
             PROJECTILE :   { src : 'assets/laser.png',            width : 80,   height : 48, },
+            ENEMY_PROJ :   { src : 'assets/enemy-laser.png',      width : 80,   height : 48, },
             ASTEROIDS :    { src : 'assets/asteroids-s.png',      width : 64,   height : 64,
                              variations : {
                                 1 :  { row : 0, col : 0 },
@@ -28,11 +29,22 @@ class GG {
                                 12 : { row : 2, col : 3 }
                             }
             },
-            EXPLOSIONS :{
+            ENEMIES :      { src : 'assets/enemies.png',          width : 90,   height : 74,
+                             variations : {
+                                1 :  { row : 0, col : 0 },
+                                2 :  { row : 0, col : 1 },
+                                3 :  { row : 0, col : 2 },
+                                4 :  { row : 0, col : 3 },
+                                5 :  { row : 0, col : 4 },
+                                6 :  { row : 0, col : 5 },
+                            }
+            },
+            EXPLOSIONS : {
                 1 : { src : 'assets/explosion1.png', width : 96, height : 96, },
                 2 : { src : 'assets/explosion2.png', width : 96, height : 96 },
                 3 : { src : 'assets/explosion3.png', width : 96, height : 96 },
                 4 : { src : 'assets/explosion4.png', width : 96, height : 96 },
+                5 : { src : 'assets/explosion5.png', width : 96, height : 96 },
             },
         }, 
         AUDIO : { 
@@ -42,15 +54,17 @@ class GG {
         },
     }
     static SETTINGS = {
-        asteroidPoolSize : 20,
-        initMaxAsteroidVel : 1,
-        initMinAsteroidVel : 0.2,
-        maxAsteroidVel : 1,
-        minAsteroidVel : 0.2,
+        asteroidPoolSize : 10,
+        inittopAsteroidVel : 1,
+        initlowAsteroidVel : 0.2,
+        topAsteroidVel : 1,
+        lowAsteroidVel : 0.2,
+        explosionScale : 2,
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
-        enableSound : true,
+        showEnemyVectorToPlayer : false,
+        enableSound : false,
         antialiasing : false,
         projectilesPoolSize  : 10,
         baseAsteroidScore : 100,
@@ -64,7 +78,16 @@ class GG {
         vel : { x : 0, y : 0 },
         maxVel : 3,
         maxRotation : 3,
-        projectileSpeed : 20,
+        projectileSpeed : 25,
+        explosionVariation : 4,
+        explosionScale : 4,
+    }
+    static ENEMY_SETTINGS = {
+        waveNumber : 3,
+        waveInterval : 10000,
+        projectileSpeed : 5,
+        minAttackInterval : 4000, //ms
+        maxAttackInterval : 8000,
     }
 
     static frame = 0;
@@ -93,34 +116,30 @@ class Input {
 
     static once(key, callback) {
         this.keys[key] = { pressed : false };
-        this.keyDown(key, () => {
-            if(!this.keys[key].pressed) callback();
-            this.keys[key].pressed = true;
+        window.addEventListener('keydown', (e) => {
+            if(e.key.toLowerCase() === key.toLowerCase() && 
+               !this.keys[key]?.locked && !this.keys[key].pressed) {
+
+                this.keys[key].pressed = true;
+                callback();
+            }
+        });
+        this.keyUp(key, () => this.keys[key].pressed = false);
+    }
+
+    static track(key) {
+        this.keys[key] = { pressed : false };
+        window.addEventListener('keydown', (e) => {
+            if(e.key.toLowerCase() === key.toLowerCase() && 
+               !this.keys[key]?.locked && !this.keys[key].pressed) {
+
+                this.keys[key].pressed = true;
+            }
         });
         window.addEventListener('keyup', (e) => {
             if(e.key.toLowerCase() === key.toLowerCase()) {
                 this.keys[key].pressed = false;
             }
-        });
-    }
-
-    static listen(key) {
-        this.keys[key] = { pressed : false };
-        this.once(key, () => {
-            this.keys[key].pressed = true;
-        });
-        this.keyUp(key, () => {
-            this.keys[key].pressed = false;
-        });
-    }
-
-    static listenOnce() {
-        this.keys[key] = { pressed : false };
-        this.once(key, () => {
-            this.keys[key].pressed = true;
-        });
-        this.keyUp(key, () => {
-            this.keys[key].pressed = false;
         });
     }
 
@@ -253,38 +272,36 @@ class Game {
     #player;
     #playerSpriteOffset;
     #renderPlayer;
-    #explosions;
     #audio;
     #score;
     #record;
     
     constructor() {
-        let starsBG = GG.ASSETS.SPRITES.P_BACKGROUND;
-        let dustBG = GG.ASSETS.SPRITES.P_DUST;
-        
-        this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
-        this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
+        GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
+        GG.lastUpdateTime = performance.now();
+        this.#paused = true;
+        this.#score = 0;
+        this.#record = 0;
 
+        this.#initBackgrounds();
+        this.#initPlayer();
+        this.#initObjects();
+        this.#initInput();
+    }
+
+    #initPlayer() {
         this.#player = new Player();
         this.#player.pos.x = GG.SCREEN_CENTER.x;
         this.#player.pos.y = GG.SCREEN_CENTER.y;
         this.#playerSpriteOffset = this.#player.width * 0.5;
         this.#renderPlayer = true;
-
-        this.#paused = true;
-        this.#score = 0;
-        this.#record = 0;
-
-        this.#initGame();
-        this.#initInput();
-
-        GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
     }
 
-    #initGame() {
+    #initObjects() {
         ProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
-        AsteroidController.createPool();
-        this.#explosions = [];
+        AsteroidController.createPool(GG.SETTINGS.asteroidPoolSize);
+        EnemyController.createWave(GG.ENEMY_SETTINGS.waveNumber);
+        EnemyProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
     }
 
     #initInput() {
@@ -300,7 +317,7 @@ class Game {
             this.#player.reset();
             this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
         });
-        Input.listen('w');
+        Input.track('w');
         Input.keyUp('w', () => this.#player.stopAccel());
         Input.keyDown('d', () => this.#player.rotateR());
         Input.keyDown('a', () => this.#player.rotateL());
@@ -308,10 +325,10 @@ class Game {
         //Gameplay
         Input.once(' ', () => {
             if(this.#paused) return;
-            ProjectileController.shoot(this.#player.pos, this.#player.angle, this.#player.vel);
+            this.#player.shoot();
         });
 
-        //Audio
+        //Audio Toggle
         Input.once('m', () => { 
             if(this.#audio.music.playing) {
                 this.#audio.music.sound.pause();
@@ -323,6 +340,10 @@ class Game {
                 this.#audio.music.playing = true;
                 GG.SETTINGS.enableSound = true;
             }
+        });
+
+        Input.once('e', () => {
+            EnemyController.enemies[0].shoot();
         });
 
         Input.once('p', () => this.pause());
@@ -346,25 +367,35 @@ class Game {
         }
     }
 
+    #initBackgrounds() {
+        let starsBG = GG.ASSETS.SPRITES.P_BACKGROUND;
+        let dustBG = GG.ASSETS.SPRITES.P_DUST;
+        
+        this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
+        this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
+    }
+
     update() {
         if(this.#paused) return;
-        this.draw();
-        this.#starsBG.update();
-        this.#dustBG.update();
 
-        this.#projectileLogic();
+        this.draw();
         this.#playerLogic();
-        this.#asteroidsLogic();
-        this.#explosionsLogic();
-        
-        GG.SETTINGS.maxAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
-        GG.SETTINGS.minAsteroidVel += GG.SETTINGS.scoreSlope * this.#score;
+        ProjectileController.update(); 
+        if(AsteroidController.destroyedAsteroidsScales.length > 0) this.#projectileCollidedWithAsteroid();
+        AsteroidController.update(this.#player.hitBox);
+        if(AsteroidController.collidedWithPlayer) this.#playerCollidedWithAasteroid();
+        ExplosionController.update();
+        EnemyController.update(this.#player.pos);
+        EnemyProjectileController.update(this.#player.hitBox);
+        if(EnemyProjectileController.playerHit) this.#enemyHitPlayer();
 
         GG.frame++;
     }
 
     draw() {
         GG.CTX.clearRect(0, 0, GG.SCREEN_WIDTH, GG.SCREEN_HEIGHT);
+        this.#starsBG.update();
+        this.#dustBG.update();
     }
 
     pause() {
@@ -389,87 +420,19 @@ class Game {
         } else if (this.#player.pos.y < 0 - this.#playerSpriteOffset) {
             this.#player.pos.y = GG.SCREEN_HEIGHT + this.#playerSpriteOffset;
         }
-
-        this.#player.draw();
     }
 
-    #projectileLogic() {
-        let toBeRemoved = [];
-        
-        for(let i = 0; i < ProjectileController.activeProjectiles.length; i++) {
-            let p = ProjectileController.activeProjectiles[i];
+    #enemyHitPlayer() {
 
-            if(p.pos.x > GG.SCREEN_WIDTH || p.pos.y > GG.SCREEN_HEIGHT ||
-               p.pos.x < 0 || p.pos.y < 0) {
-                toBeRemoved.push(p);
-            } else {
-                p.update();
-                p.draw();
-                for(let j = 0; j < AsteroidController.asteroids.length; j++) {
-                    let a = AsteroidController.asteroids[j];
-                    if(p.collisionBox.SATCollides(a.collisionBox)) {
-                        this.#explosions.push(new Explosion(a.pos.x, a.pos.y, a.sprite.scale * 2));
-                        AsteroidController.respawn(a);
-                        toBeRemoved.push(p);
-                        this.#score += GG.SETTINGS.baseAsteroidScore - a.sprite.scale;
-                        DOMUI.updateScore(this.#score);
-                        break;
-                    }
-                }
-            }
-        }
-
-        for(let i = 0; i < toBeRemoved.length; i++) {
-            let p = toBeRemoved[i];
-            ProjectileController.reset(p);
-        }
-
-        ProjectileController.activeProjectiles = ProjectileController.activeProjectiles.filter(
-            (p) => !toBeRemoved.includes(p)
-        );
     }
 
-    #asteroidsLogic() {
-        if(AsteroidController.asteroids.length < GG.SETTINGS.asteroidPoolSize) {
-            AsteroidController.asteroids.push(AsteroidController.createRandom());
+    #projectileCollidedWithAsteroid() {
+        for(let i = 0; i < AsteroidController.destroyedAsteroidsScales.length; i++) {
+            let asteroidScale = AsteroidController.destroyedAsteroidsScales[i];
+            this.#score += GG.SETTINGS.baseAsteroidScore - asteroidScale;
+            DOMUI.updateScore(this.#score);
         }
-
-        for(let i = 0; i < AsteroidController.asteroids.length; i++) {
-            let a = AsteroidController.asteroids[i];
-            a.update();
-
-            if(a.pos.x > GG.SCREEN_WIDTH + a.sprite.width) {
-                a.pos.x = 0 - a.sprite.width;
-            } else if (a.pos.x  < 0 - a.sprite.width) {
-                a.pos.x = GG.SCREEN_WIDTH + a.sprite.width;
-            }
-    
-            if(a.pos.y > GG.SCREEN_HEIGHT +  a.sprite.height) {
-                a.pos.y = 0 -  a.sprite.height;
-            } else if (a.pos.y < 0 - a.sprite.height) {
-                a.pos.y = GG.SCREEN_HEIGHT + a.sprite.height;
-            }
-
-            if(a.collisionBox.SATCollides(this.#player.collisionBox)) {
-                this.#playerCollidedWithAasteroid();
-            }
-
-            a.draw();
-        }
-    }
-
-    #explosionsLogic() {
-        if(this.#explosions.length > 0) {
-            for(let i = 0; i < this.#explosions.length; i++) {
-                let e = this.#explosions[i];
-                e.draw();
-
-                if(e.sprite.animationDone) {
-                    this.#explosions.splice(i, 1);
-                    i--;
-                }
-            }
-        }
+        AsteroidController.destroyedAsteroidsScales = [];
     }
 
     #playerCollidedWithAasteroid() {
@@ -477,13 +440,12 @@ class Game {
 
         if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
         this.#player.isInvulnerable = true;
-        this.#explosions.push(new Explosion(this.#player.pos.x, this.#player.pos.y, 
-                                            this.#player.sprite.scale * 4, 4));
         this.#renderPlayer = false;
-        GG.SETTINGS.maxAsteroidVel = GG.SETTINGS.initMaxAsteroidVel;
-        GG.SETTINGS.minAsteroidVel = GG.SETTINGS.initMinAsteroidVel;
-        setTimeout(() =>{
-            this.#initGame();
+        ExplosionController.explode(this.#player.pos, 
+                                    GG.PLAYER_SETTINGS.explosionScale, 
+                                    GG.PLAYER_SETTINGS.explosionVariation);
+        setTimeout(() => {
+            this.#initObjects();
             this.#renderPlayer = true;
             this.#player.isInvulnerable = false;
             this.#player.reset();
@@ -494,7 +456,7 @@ class Game {
 
     #resetScore() {
         if(this.#score > this.#record) this.#record = this.#score;
-        this.#score = 0
+        this.#score = 0;
         DOMUI.updateScore(0);
         DOMUI.updateRecord(this.#record);
     }
@@ -611,6 +573,7 @@ class Sprite {
     get scale() { return this.#scale; }
 
     set scale(scale) { 
+        if (typeof scale !== 'number') return; 
         this.#scale = scale; 
         this.#width = this.#sourceWidth * scale;
         this.#height = this.#sourceHeight * scale;
@@ -736,10 +699,9 @@ class Player {
     #maxVel;
     #maxRotation;
     #isAccelerating;
-    #collisionBox;
+    #hitBox;
     #isInvulnerable;
-
-    pos;
+    #pos;
 
     constructor() {
         let sprite = GG.ASSETS.SPRITES.PLAYER;
@@ -750,22 +712,29 @@ class Player {
         this.#sprite.createAnimationState('blinking', 0, -1, 0, 7);
         this.#sprite.setAnimationState('iddle');
         this.#initSettings();
-        this.#collisionBox = new CollisionBox(this.pos.x, this.pos.y, this.#sprite.width, this.#sprite.height);
+        this.#hitBox = new HitBox(this.pos.x, this.pos.y, 
+                                  this.#sprite.width, this.#sprite.height,
+                                0.7);
     }
 
     update() {
         this.#updateFromInput();
         this.#updatePosition();
         this.#updateOrientation();
-        this.#collisionBox.translate(this.pos.x - this.#sprite.width * 0.5, 
-            this.pos.y - this.#sprite.height * 0.5);
+        this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
+                                     this.pos.y - this.#sprite.height * 0.5);
+        this.draw();
     }
 
     draw() {
         this.#sprite.animateRow(this.pos.x, this.pos.y, this.#angle);
         if(GG.SETTINGS.showPlayerVector) this.#visualizeVelocityVector();
         if(GG.SETTINGS.showPos) this.#visualizePos();
-        if(GG.SETTINGS.showBoxes) this.#visualizeBox();
+        if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
+    }
+
+    shoot() {
+        ProjectileController.shoot(this.#pos, this.#angle, this.#vel);
     }
 
     #initSettings() {
@@ -806,7 +775,7 @@ class Player {
         let accelX = Math.cos(GMath.toRadians(this.#angle)) * this.#acceleration;
         let accelY = Math.sin(GMath.toRadians(this.#angle)) * this.#acceleration;
         let vMag;
-    
+
         this.#isAccelerating = true;
         this.#vel.x += accelX;
         this.#vel.y += accelY;
@@ -865,14 +834,9 @@ class Player {
         GG.CTX.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
         GG.CTX.fillStyle = 'lime';
         GG.CTX.fill();
-    }
+    }  
 
-    #visualizeBox() {
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.strokeRect(this.#collisionBox.x, this.#collisionBox.y, 
-                          this.#collisionBox.width, this.#collisionBox.height);
-    }   
-
+    get pos() { return this.#pos; }
     get vel() { return this.#vel; }
     get rotation() { return this.#rotation; }
     get angle() { return this.#angle; }
@@ -880,9 +844,18 @@ class Player {
     get height() { return this.#sprite.height; } 
     get sprite() { return this.#sprite; }
     get isAccelerating() { return this.#isAccelerating; }
-    get collisionBox() { return this.#collisionBox; }
+    get hitBox() { return this.#hitBox; }
     get isInvulnerable() { return this.#isInvulnerable; }
 
+    set pos(pos) {
+        if (typeof pos !== 'object' || pos === null) {
+            throw new TypeError('Position must be a non-null object');
+        }
+        if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+            throw new TypeError('Position object must contain numeric properties x and y');
+        }
+        this.#pos = pos; 
+    }
     set isInvulnerable(val) {
         if(val !== true && val !== false) return;
         this.#isInvulnerable = val;
@@ -892,59 +865,70 @@ class Player {
 
 class Projectile {
 
-    pos;
+    #pos;
     #angle;
     #vel;
     #speed;
     #sprite;
     #sound;
-    #collisionBox;
+    #enableAudio;
+    #hitBox;
 
-    constructor() {
+    constructor(audio = true) {
         let sprite = GG.ASSETS.SPRITES.PROJECTILE;
+
+        this.#enableAudio = audio;
+        this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
         this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, 0.5);
-        this.#sound = new Audio();
-        this.#sound.src = GG.ASSETS.AUDIO.laser;
+        if(this.#enableAudio) {
+            this.#sound = new Audio();
+            this.#sound.src = GG.ASSETS.AUDIO.laser;
+        }
     }
 
     init(pos, a, pv) {
-        this.pos = { x : pos.x || 0, y : pos.y || 0 };
+        this.#pos = { x : pos.x || 0, y : pos.y || 0 };
         this.#angle = a || 0;
-        this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
         this.#vel = { 
             x : Math.cos(GMath.toRadians(this.#angle)) * this.#speed + pv.x, 
             y : Math.sin(GMath.toRadians(this.#angle)) * this.#speed + pv.y, 
         }
-        this.#collisionBox = new CollisionBox(this.pos.x - this.#sprite.width * 0.5, 
-                                              this.pos.y - this.#sprite.height * 0.5, 
+        this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
+                                              this.#pos.y - this.#sprite.height * 0.5, 
                                               this.#sprite.width, this.#sprite.height,
                                               0.5);
+        if(GG.SETTINGS.enableSound && this.#enableAudio) this.playSound();
     }
 
     update() {
-        this.pos.x += this.#vel.x;
-        this.pos.y += this.#vel.y;
+        this.#pos.x += this.#vel.x;
+        this.#pos.y += this.#vel.y;
 
-        this.#collisionBox.translate(this.pos.x - this.#sprite.width * 0.5, 
+        this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
                                      this.pos.y - this.#sprite.height * 0.5);
     }
 
     draw() {
         this.#sprite.draw(this.pos.x, this.pos.y, this.#angle);
-        if(GG.SETTINGS.showBoxes) this.#visualizeBox();
+        if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
-
-    #visualizeBox() {
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.strokeRect(this.#collisionBox.x, this.#collisionBox.y, 
-                          this.#collisionBox.width, this.#collisionBox.height);
-    }  
 
     playSound() {
         if(GG.SETTINGS.enableSound) this.#sound.play();
     }
 
-    get collisionBox() { return this.#collisionBox; }
+    get hitBox() { return this.#hitBox; }
+    get sprite() { return this.#sprite; }
+    get pos() { return this.#pos; }
+    get speed() { return this.#speed; }
+
+    set sprite(sprite) {
+        if(!(sprite instanceof Sprite)) return;
+        this.#sprite = sprite;
+    }
+    set speed(speed) {
+        this.#speed = speed;
+    }
 
 }
 
@@ -952,6 +936,49 @@ class ProjectileController {
 
     static inactiveProjectiles = [];
     static activeProjectiles = [];
+
+    static update() {
+        let toBeRemoved = [];
+        
+        for(let i = 0; i < this.activeProjectiles.length; i++) {
+            let p = this.activeProjectiles[i];
+
+            if(p.pos.x > GG.SCREEN_WIDTH || p.pos.y > GG.SCREEN_HEIGHT ||
+               p.pos.x < 0 || p.pos.y < 0) {
+                toBeRemoved.push(p);
+            } else {
+                p.update();
+                p.draw();
+                for(let j = 0; j < AsteroidController.asteroids.length; j++) {
+                    let a = AsteroidController.asteroids[j];
+                    if(p.hitBox.SATCollides(a.hitBox)) {
+                        toBeRemoved.push(p);
+                        AsteroidController.destroyedAsteroidsScales.push(a.sprite.scale);
+                        ExplosionController.explode(a.pos, a.sprite.scale * GG.SETTINGS.explosionScale);
+                        AsteroidController.respawn(a);
+                    }
+                }
+                for(let j = 0; j < EnemyController.enemies.length; j++) {
+                    let en = EnemyController.enemies[j];
+                    if(p.hitBox.SATCollides(en.hitBox)) {
+                        toBeRemoved.push(p);
+                        ExplosionController.explode(en.pos, en.sprite.scale * GG.SETTINGS.explosionScale, 5);
+                        EnemyController.enemies.splice(j, 1);
+                        j--;
+                    }
+                }
+            }
+        }
+
+        for(let i = 0; i < toBeRemoved.length; i++) {
+            let p = toBeRemoved[i];
+            this.reset(p);
+        }
+
+        this.activeProjectiles = this.activeProjectiles.filter(
+            (p) => !toBeRemoved.includes(p)
+        );
+    }
 
     static createPool(number) {
         for(let i = 0; i < number; i++) {
@@ -962,7 +989,6 @@ class ProjectileController {
     static shoot(pos, a, pv) {
         let p = this.inactiveProjectiles.pop();
         p.init(pos, a, pv);
-        p.playSound();
         this.activeProjectiles.push(p);
     }
 
@@ -983,7 +1009,7 @@ class Asteroid {
     #rotation;
     #angle;
     #scale;
-    #collisionBox;
+    #hitBox;
 
     constructor(x, y, vx, vy, scale, rotation, variation) {
         let sprite = GG.ASSETS.SPRITES.ASTEROIDS;
@@ -996,7 +1022,7 @@ class Asteroid {
         this.#angle = 0;
         this.#variations = sprite.variations;
         this.#variation = variation || GMath.randomInt(1, Object.keys(sprite.variations).length);
-        this.#collisionBox = new CollisionBox(this.#pos.x - this.#sprite.width * 0.5, 
+        this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
                                               this.#pos.y - this.#sprite.height * 0.5, 
                                               this.#sprite.width, this.#sprite.height,
                                               0.8);
@@ -1006,7 +1032,7 @@ class Asteroid {
         this.#pos.x += this.#vel.x;
         this.#pos.y += this.#vel.y;
 
-        this.#collisionBox.translate(this.pos.x - this.#sprite.width * 0.5, 
+        this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
                                      this.pos.y - this.#sprite.height * 0.5);
 
         if(this.#angle < 0 ) this.#angle = 360;
@@ -1018,15 +1044,9 @@ class Asteroid {
         this.#sprite.drawFromSheet(this.#pos.x, this.#pos.y, 
                                    this.#variations[this.#variation].row,
                                    this.#variations[this.#variation].col, this.#angle);
-        if(GG.SETTINGS.showBoxes) this.#visualizeBox();
+        if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
         if(GG.SETTINGS.showPos) this.#visualizePos();
-    }
-
-    #visualizeBox() {
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.strokeRect(this.#collisionBox.x, this.#collisionBox.y, 
-                          this.#collisionBox.width, this.#collisionBox.height);
-    }  
+    } 
 
     #visualizePos() {
         GG.CTX.beginPath();
@@ -1036,12 +1056,32 @@ class Asteroid {
     }
 
     get pos() { return this.#pos; }
+    get vel() { return this.#vel; }
     get sprite() { return this.#sprite; }
-    get collisionBox() { return this.#collisionBox; }
+    get hitBox() { return this.#hitBox; }
 
-    set pos(pos) { this.#pos = pos; }
-    set vel(vel) { this.#vel = vel; }
-    set rotation(val) { this.#rotation = val; }
+    set pos(pos) { 
+        if (typeof pos !== 'object' || pos === null) {
+            throw new TypeError('Position must be a non-null object');
+        }
+        if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+            throw new TypeError('Position object must contain numeric properties x and y');
+        }
+        this.#pos = pos; 
+    }
+    set vel(vel) { 
+        if (typeof vel !== 'object' || vel === null) {
+            throw new TypeError('Velocity must be a non-null object');
+        }
+        if (typeof vel.x !== 'number' || typeof vel.y !== 'number') {
+            throw new TypeError('Velocity object must contain numeric properties x and y');
+        }
+        this.#vel = vel;
+    }
+    set rotation(val) { 
+        if (typeof scale !== 'number') return; 
+        this.#rotation = val; 
+    }
 
 }
 
@@ -1050,6 +1090,8 @@ class AsteroidController {
     static asteroids = [];
     static maxScale = 1.9;
     static minScale = 0.5;
+    static collidedWithPlayer = false;
+    static destroyedAsteroidsScales = [];
     static sbb = 100; //Screen boundaries buffer
     static asb = { //Asteroid spawn boundaries
         0 : { 
@@ -1072,6 +1114,36 @@ class AsteroidController {
             y : { min : 0, max : GG.SCREEN_HEIGHT }
         }
     };
+
+    static update(hitBox = undefined) {
+        this.collidedWithPlayer = false;
+
+        if(this.asteroids.length < GG.SETTINGS.asteroidPoolSize) {
+            this.asteroids.push(this.createRandom());
+        }
+
+        for(let i = 0; i < this.asteroids.length; i++) {
+            let a = this.asteroids[i];
+
+            a.update();
+            a.draw();
+            if(a.pos.x > GG.SCREEN_WIDTH + a.sprite.width) {
+                a.pos.x = 0 - a.sprite.width;
+            } else if (a.pos.x  < 0 - a.sprite.width) {
+                a.pos.x = GG.SCREEN_WIDTH + a.sprite.width;
+            }
+            if(a.pos.y > GG.SCREEN_HEIGHT +  a.sprite.height) {
+                a.pos.y = 0 -  a.sprite.height;
+            } else if (a.pos.y < 0 - a.sprite.height) {
+                a.pos.y = GG.SCREEN_HEIGHT + a.sprite.height;
+            }
+            if(hitBox instanceof HitBox) {
+                if(a.hitBox.SATCollides(hitBox)) {
+                    this.collidedWithPlayer = true;
+                }
+            }
+        }
+    }
 
     static createPool(number) {
         if(this.asteroids.length > 0) this.asteroids = [];
@@ -1097,20 +1169,20 @@ class AsteroidController {
 
         switch(side) {
             case 0 :
-                vx = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
-                vy = GMath.randomFloat(st.minAsteroidVel, st.maxAsteroidVel);
+                vx = GMath.randomFloat(-st.lowAsteroidVel, st.lowAsteroidVel);
+                vy = GMath.randomFloat(st.lowAsteroidVel, st.topAsteroidVel);
                 break;
             case 1 :
-                vx = GMath.randomFloat(-st.minAsteroidVel, -st.maxAsteroidVel);
-                vy = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
+                vx = GMath.randomFloat(-st.lowAsteroidVel, -st.topAsteroidVel);
+                vy = GMath.randomFloat(-st.lowAsteroidVel, st.lowAsteroidVel);
                 break;
             case 2 :
-                vx = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
-                vy = GMath.randomFloat(-st.minAsteroidVel, -st.maxAsteroidVel);
+                vx = GMath.randomFloat(-st.lowAsteroidVel, st.lowAsteroidVel);
+                vy = GMath.randomFloat(-st.lowAsteroidVel, -st.topAsteroidVel);
                 break;
             case 3 :
-                vx = GMath.randomFloat(st.minAsteroidVel, st.maxAsteroidVel);
-                vy = GMath.randomFloat(-st.minAsteroidVel, st.minAsteroidVel);
+                vx = GMath.randomFloat(st.lowAsteroidVel, st.topAsteroidVel);
+                vy = GMath.randomFloat(-st.lowAsteroidVel, st.lowAsteroidVel);
                 break;
         }
 
@@ -1132,32 +1204,32 @@ class AsteroidController {
 
 }
 
-class CollisionBox {
+class HitBox {
 
-    #oWidth;
-    #oHeight;
+    #originalWidth;
+    #originalHeight;
     #width; 
     #height;
     #scale
     x; y; 
 
     constructor(x, y, w, h, scale) {
-        this.#oWidth = w;
-        this.#oHeight = h;
+        this.#originalWidth = w;
+        this.#originalHeight = h;
         this.#scale = scale || 1;
         this.#width = w * this.#scale;
         this.#height = h * this.#scale;
-        this.x = x + (this.#oWidth - this.#width) * 0.5;
-        this.y = y + (this.#oHeight - this.#height) * 0.5;
+        this.x = x + (this.#originalWidth - this.#width) * 0.5;
+        this.y = y + (this.#originalHeight - this.#height) * 0.5;
     }
 
     translate(x, y) {
-        this.x = x + (this.#oWidth - this.#width) * 0.5;
-        this.y = y + (this.#oHeight - this.#height) * 0.5;
+        this.x = x + (this.#originalWidth - this.#width) * 0.5;
+        this.y = y + (this.#originalHeight - this.#height) * 0.5;
     }
 
     SATCollides(box) {
-        if(!(box instanceof CollisionBox)) return;
+        if(!(box instanceof HitBox)) return;
         let thisHalfW = this.#width * 0.5;
         let thisHalfH = this.#height * 0.5;
         let thatHalfW = box.width * 0.5;
@@ -1179,7 +1251,7 @@ class CollisionBox {
     }
 
     AABBCollides(box) {
-        if(!(box instanceof CollisionBox)) return;
+        if(!(box instanceof HitBox)) return;
         if(this.x + this.#width >= box.x &&
            this.x <= box.x + box.width &&
            this.y + this.#height >= box.y &&
@@ -1188,6 +1260,12 @@ class CollisionBox {
             return true;
         }
         return false;
+    }
+
+    draw() {
+        GG.CTX.strokeStyle = 'lime';
+        GG.CTX.strokeRect(this.x, this.y, 
+                          this.#width, this.#height);
     }
 
     get width() { return this.#width; }
@@ -1205,18 +1283,271 @@ class Explosion {
         let variation = _variation || GMath.randomInt(1, 3);
         let sprite = GG.ASSETS.SPRITES.EXPLOSIONS[variation];
         this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, scale || 1, 1, 64, 8, 8, true);
-        this.x = x;
-        this.y = y;
+        this.#x = x;
+        this.#y = y;
         this.#rotation = GMath.randomInt(1, 360);
     }
 
     update() {}
 
     draw() {
-        this.#sprite.animate(this.x, this.y, this.#rotation);
+        this.#sprite.animate(this.#x, this.#y, this.#rotation);
     }
 
     get sprite() { return this.#sprite; }
+
+}
+
+class ExplosionController {
+
+    static explosions = [];
+
+    static update() {
+        for(let i = 0; i < this.explosions.length; i++) {
+            let e = this.explosions[i];
+            
+            e.draw();
+            if(e.sprite.animationDone) {
+                this.explosions.splice(i, 1);
+                i--;
+            }
+        }
+    }
+
+    static explode(pos, scale, variation = undefined) {
+        this.explosions.push(new Explosion(pos.x, pos.y, scale, variation));
+    }
+
+}
+
+class Enemy {
+
+    #vel;
+    #pos;
+    #sprite;
+    #angle;
+    #variations;
+    #variation;
+    #scale;
+    #hitBox;
+    #attackInterval;
+    #lastAttackTime;
+
+    constructor(x, y, scale, variation) {
+        let sprite = GG.ASSETS.SPRITES.ENEMIES;
+        
+        this.#scale = scale || 1;
+        this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, this.#scale);
+        this.#pos = { x : x, y : y };
+        this.#angle = 0;
+        this.#attackInterval = GMath.randomInt(GG.ENEMY_SETTINGS.minAttackInterval, 
+                                               GG.ENEMY_SETTINGS.maxAttackInterval);
+        this.#lastAttackTime = performance.now();
+        this.#variations = sprite.variations;
+        this.#variation = variation || GMath.randomInt(1, Object.keys(sprite.variations).length);
+        this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
+                                              this.#pos.y - this.#sprite.height * 0.5, 
+                                              this.#sprite.width, this.#sprite.height,
+                                              0.8);
+    }
+
+    update(playerPos) {
+        this.draw();
+        this.#pos.x += this.#vel.x;
+        this.#pos.y += this.#vel.y;
+        this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
+                               this.pos.y - this.#sprite.height * 0.5);
+        this.#angle = GMath.pointsAngleD(this.#pos.x, this.#pos.y, playerPos.x, playerPos.y);
+    }
+
+    draw() {
+        this.#sprite.drawFromSheet(this.#pos.x, this.#pos.y,
+                                   this.#variations[this.#variation].row,
+                                   this.#variations[this.#variation].col, this.#angle - 90);
+        if(GG.SETTINGS.showPos) this.#visualizePos();
+        if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
+    }
+
+    shoot() {
+        EnemyProjectileController.shoot(this.#pos, this.#angle, this.#vel);
+    }
+
+    #visualizePos() {
+        GG.CTX.beginPath();
+        GG.CTX.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
+        GG.CTX.fillStyle = 'lime';
+        GG.CTX.fill();
+    }  
+
+    get vel() { return this.#vel; }
+    get pos() { return this.#pos; }
+    get angle() { return this.#angle; }
+    get attackInterval() { return this.#attackInterval; }
+    get lastAttackTime() { return this.#lastAttackTime; }
+    get sprite() { return this.#sprite; }
+    get hitBox() { return this.#hitBox; }
+
+    set vel(vel) { 
+        if (typeof vel !== 'object' || vel === null) {
+            throw new TypeError('Velocity must be a non-null object');
+        }
+        if (typeof vel.x !== 'number' || typeof vel.y !== 'number') {
+            throw new TypeError('Velocity object must contain numeric properties x and y');
+        }
+        this.#vel = vel;
+    }
+    set pos(pos) {
+        if (typeof pos !== 'object' || pos === null) {
+            throw new TypeError('Position must be a non-null object');
+        }
+        if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+            throw new TypeError('Position object must contain numeric properties x and y');
+        }
+        this.#pos = pos;
+    }
+    set angle(a) { 
+        if (typeof a !== 'number') return;
+        a = a % 360;
+        if (a < 0) a += 360;
+        this.#angle = a; 
+    }
+    set lastAttackTime(t) {
+        if(typeof t !== 'number') return;
+        this.#lastAttackTime = t;
+    }
+
+}
+
+class EnemyController {
+
+    static enemies = [];
+    static inactive = [];
+    static offScreenSpawnOffset = -50;
+
+    static createWave(number) {
+        for(let i = 0; i < number; i++) {
+            this.enemies.push(this.createRandom());
+        }
+    }
+
+    static createRandom() {
+        let enemy = new Enemy(GMath.randomInt(GG.SCREEN_WIDTH * 0.1, 
+                                              GG.SCREEN_WIDTH * 0.9), 
+                              this.offScreenSpawnOffset);
+        
+        enemy.vel = { 
+            x : GMath.randomFloat(-0.2, 0.2), 
+            y : GMath.randomFloat(0.1, 0.35) 
+        };
+        return enemy;
+    }
+
+    static create(pos, vel) {
+
+    }
+
+    static update(playerPos) {
+
+        for(let i = 0; i < this.enemies.length; i++) {
+            let en = this.enemies[i];
+            let currentTime = performance.now();
+            let elapsedTime = currentTime - en.lastAttackTime;
+
+            if(en.pos.x > GG.SCREEN_WIDTH + en.sprite.width) {
+                en.pos.x = 0 - en.sprite.width;
+            } else if (en.pos.x  < 0 - en.sprite.width) {
+                en.pos.x = GG.SCREEN_WIDTH + en.sprite.width;
+            }
+            if(en.pos.y > GG.SCREEN_HEIGHT +  en.sprite.width) {
+                en.pos.y = 0 -  en.sprite.height;
+            } else if (en.pos.y < 0 - en.sprite.height) {
+                en.pos.y = GG.SCREEN_HEIGHT + en.sprite.width;
+            }
+            if (elapsedTime >= en.attackInterval) {
+                en.shoot();
+                en.lastAttackTime = currentTime;
+            }
+            if(GG.SETTINGS.showEnemyVectorToPlayer) this.visualizeVectorToPlayer(playerPos, en.pos);
+            en.update(playerPos);
+        }
+    }
+
+    static visualizeVectorToPlayer(pPos, ePos) {
+        GG.CTX.beginPath();
+        GG.CTX.moveTo(ePos.x, ePos.y);
+        GG.CTX.lineTo(pPos.x, pPos.y);
+        GG.CTX.strokeStyle = 'lime';
+        GG.CTX.stroke();
+    }
+
+}
+
+class EnemyProjectile extends Projectile {
+
+    constructor() {
+        super(false);
+        let sprite = GG.ASSETS.SPRITES.ENEMY_PROJ;
+
+        this.speed = GG.ENEMY_SETTINGS.projectileSpeed;
+        this.sprite = new Sprite(sprite.src, sprite.width, sprite.height, 0.5);
+    }
+
+}
+
+class EnemyProjectileController {
+
+    static inactiveProjectiles = [];
+    static activeProjectiles = [];
+    static playerHit = false;
+
+    static update(hitBox = undefined) {
+        let toBeRemoved = [];
+        this.playerHit = false;
+        
+        for(let i = 0; i < this.activeProjectiles.length; i++) {
+            let p = this.activeProjectiles[i];
+
+            if(p.pos.x > GG.SCREEN_WIDTH || p.pos.y > GG.SCREEN_HEIGHT ||
+               p.pos.x < 0 || p.pos.y < 0) {
+                toBeRemoved.push(p);
+            } else {
+                p.update();
+                p.draw();
+                if(hitBox instanceof HitBox) {
+                    if(p.hitBox.SATCollides(hitBox)) {
+                        this.playerHit = true;
+                        toBeRemoved.push(p);
+                    }
+                }
+            }
+        }
+
+        for(let i = 0; i < toBeRemoved.length; i++) {
+            let p = toBeRemoved[i];
+            this.reset(p);
+        }
+
+        this.activeProjectiles = this.activeProjectiles.filter(
+            (p) => !toBeRemoved.includes(p)
+        );
+    }
+
+    static createPool(number) {
+        for(let i = 0; i < number; i++) {
+            this.inactiveProjectiles[i] = new EnemyProjectile();
+        }
+    }
+
+    static shoot(pos, a, pv) {
+        let p = this.inactiveProjectiles.pop();
+        p.init(pos, a, pv);
+        this.activeProjectiles.push(p);
+    }
+
+    static reset(projectile) {
+        if(!(projectile instanceof EnemyProjectile)) return;
+        this.inactiveProjectiles.unshift(projectile);
+    }
 
 }
 

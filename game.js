@@ -68,7 +68,9 @@ class GG {
         antialiasing : false,
         projectilesPoolSize  : 10,
         baseAsteroidScore : 100,
+        baseEnemyScore : 200,
         scoreSlope : 0.00000005,
+        gameResetTimeout : 3000,
     }
     static PLAYER_SETTINGS = {
         acceleration : 0.02,
@@ -265,6 +267,34 @@ class DOMUI {
 
 }
 
+class GDraw {
+
+    static lineColor = 'lime';
+    static dotColor = 'lime';
+    static boxColor = 'lime';
+
+    static line(v1, v2, color = this.lineColor) {
+        GG.CTX.beginPath();
+        GG.CTX.moveTo(v1.x, v1.y);
+        GG.CTX.lineTo(v2.x, v2.y);
+        GG.CTX.strokeStyle = color;
+        GG.CTX.stroke();
+    }
+
+    static dot(x, y, color = this.dotColor) {
+        GG.CTX.beginPath();
+        GG.CTX.arc(x, y, 5, 0, 2 * Math.PI);
+        GG.CTX.fillStyle = color;
+        GG.CTX.fill();
+    }
+
+    static box(x,y, w, h, color = this.boxColor) {
+        GG.CTX.strokeStyle = color;
+        GG.CTX.strokeRect(x, y, w, h);
+    }
+
+}
+
 class Game {
 
     #paused;
@@ -300,21 +330,17 @@ class Game {
     #initObjects() {
         ProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
         AsteroidController.createPool(GG.SETTINGS.asteroidPoolSize);
-        EnemyController.createWave(GG.ENEMY_SETTINGS.waveNumber);
         EnemyProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
     }
 
     #initInput() {
         //UI
         Input.once('enter', () => {
-            this.#paused = false;
-            DOMUI.hideStartScreen();
-            this.#initAudio();
+            this.#startGame();
         });
 
         //Player
         Input.once('r', () => { 
-            this.#player.reset();
             this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
         });
         Input.track('w');
@@ -375,18 +401,29 @@ class Game {
         this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
     }
 
+    #startGame() {
+        this.#paused = false;
+        this.#initAudio();
+        DOMUI.hideStartScreen();
+        EnemyController.scheduleWave();
+        Input.lock('enter');
+    }
+
     update() {
         if(this.#paused) return;
 
         this.draw();
         this.#playerLogic();
         ProjectileController.update(); 
-        if(AsteroidController.destroyedAsteroidsScales.length > 0) this.#projectileCollidedWithAsteroid();
         AsteroidController.update(this.#player.hitBox);
-        if(AsteroidController.collidedWithPlayer) this.#playerCollidedWithAasteroid();
         ExplosionController.update();
         EnemyController.update(this.#player.pos);
         EnemyProjectileController.update(this.#player.hitBox);
+        TimeoutController.update();
+
+        if(AsteroidController.destroyedAsteroidsScales.length > 0) this.#projectileCollidedWithAsteroid();
+        if(AsteroidController.collidedWithPlayer) this.#playerCollidedWithAasteroid();
+        if(EnemyController.destroyedEnemies > 0) this.#playerKilledEnemy();
         if(EnemyProjectileController.playerHit) this.#enemyHitPlayer();
 
         GG.frame++;
@@ -399,8 +436,13 @@ class Game {
     }
 
     pause() {
-        if(this.#paused) this.#paused = false;
-        else this.#paused = true;
+        if(this.#paused) {
+            this.#paused = false;
+            TimeoutController.resumeAll();
+        } else {
+            this.#paused = true;
+            TimeoutController.pauseAll();
+        }
         DOMUI.togglePause(this.#paused);
     }
 
@@ -423,7 +465,8 @@ class Game {
     }
 
     #enemyHitPlayer() {
-
+        if(this.#player.isInvulnerable) return;
+        this.#playerDestroyed();
     }
 
     #projectileCollidedWithAsteroid() {
@@ -435,23 +478,37 @@ class Game {
         AsteroidController.destroyedAsteroidsScales = [];
     }
 
+    #playerKilledEnemy() {
+        for(let i = 0; i < EnemyController.destroyedEnemies; i++) {
+            this.#score += GG.SETTINGS.baseEnemyScore;
+            DOMUI.updateScore(this.#score);
+        }
+        EnemyController.destroyedEnemies = 0;
+    }
+
     #playerCollidedWithAasteroid() {
         if(this.#player.isInvulnerable) return;
+        this.#playerDestroyed();
+    }
 
+    #playerDestroyed() {
         if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
         this.#player.isInvulnerable = true;
         this.#renderPlayer = false;
         ExplosionController.explode(this.#player.pos, 
                                     GG.PLAYER_SETTINGS.explosionScale, 
                                     GG.PLAYER_SETTINGS.explosionVariation);
-        setTimeout(() => {
+        
+        TimeoutController.set(() => {
             this.#initObjects();
             this.#renderPlayer = true;
             this.#player.isInvulnerable = false;
             this.#player.reset();
             this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
             this.#resetScore();
-        }, 3000);
+            EnemyController.resetEnemies();
+            EnemyProjectileController.resetAll();
+        }, GG.SETTINGS.gameResetTimeout);
     }
 
     #resetScore() {
@@ -729,7 +786,7 @@ class Player {
     draw() {
         this.#sprite.animateRow(this.pos.x, this.pos.y, this.#angle);
         if(GG.SETTINGS.showPlayerVector) this.#visualizeVelocityVector();
-        if(GG.SETTINGS.showPos) this.#visualizePos();
+        if(GG.SETTINGS.showPos) GDraw.dot(this.pos.x, this.pos.y);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
 
@@ -810,31 +867,17 @@ class Player {
     reset() {
         this.sprite.setAnimationState('blinking');
         Input.lock('w');
-        setTimeout(() => {
+        this.#initSettings();
+
+        TimeoutController.set(() => {
             this.sprite.setAnimationState('iddle');
             Input.unlock('w');
         }, 1000);
-        this.#initSettings();
     }
 
     #visualizeVelocityVector(scale = 50) {
-        let posX = this.pos.x;
-        let posY = this.pos.y;
-
-        GG.CTX.beginPath();
-        GG.CTX.moveTo(posX, posY);
-        GG.CTX.lineTo(posX + this.#vel.x * scale, posY + this.#vel.y * scale);
-        GG.CTX.lineWidth = 2;
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.stroke();
+        GDraw.line(this.pos, { x : this.pos.x + this.#vel.x * scale, y : this.pos.y + this.#vel.y * scale });
     }
-
-    #visualizePos() {
-        GG.CTX.beginPath();
-        GG.CTX.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
-        GG.CTX.fillStyle = 'lime';
-        GG.CTX.fill();
-    }  
 
     get pos() { return this.#pos; }
     get vel() { return this.#vel; }
@@ -962,11 +1005,13 @@ class ProjectileController {
                     let en = EnemyController.enemies[j];
                     if(p.hitBox.SATCollides(en.hitBox)) {
                         toBeRemoved.push(p);
+                        EnemyController.destroyedEnemies++;
                         ExplosionController.explode(en.pos, en.sprite.scale * GG.SETTINGS.explosionScale, 5);
                         EnemyController.enemies.splice(j, 1);
                         j--;
                     }
                 }
+                
             }
         }
 
@@ -1045,14 +1090,7 @@ class Asteroid {
                                    this.#variations[this.#variation].row,
                                    this.#variations[this.#variation].col, this.#angle);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
-        if(GG.SETTINGS.showPos) this.#visualizePos();
-    } 
-
-    #visualizePos() {
-        GG.CTX.beginPath();
-        GG.CTX.arc(this.#pos.x, this.#pos.y, 5, 0, 2 * Math.PI);
-        GG.CTX.fillStyle = 'lime';
-        GG.CTX.fill();
+        if(GG.SETTINGS.showPos) GDraw.dot(this.#pos.x, this.#pos.y);
     }
 
     get pos() { return this.#pos; }
@@ -1079,7 +1117,7 @@ class Asteroid {
         this.#vel = vel;
     }
     set rotation(val) { 
-        if (typeof scale !== 'number') return; 
+        if (typeof val !== 'number') throw new TypeError('Rotation must be a number');
         this.#rotation = val; 
     }
 
@@ -1263,9 +1301,7 @@ class HitBox {
     }
 
     draw() {
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.strokeRect(this.x, this.y, 
-                          this.#width, this.#height);
+        GDraw.box(this.x, this.y, this.#width, this.#height);
     }
 
     get width() { return this.#width; }
@@ -1333,12 +1369,13 @@ class Enemy {
     #attackInterval;
     #lastAttackTime;
 
-    constructor(x, y, scale, variation) {
+    constructor(pos, vel, scale, variation) {
         let sprite = GG.ASSETS.SPRITES.ENEMIES;
         
         this.#scale = scale || 1;
         this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, this.#scale);
-        this.#pos = { x : x, y : y };
+        this.#pos = pos;
+        this.#vel = vel;
         this.#angle = 0;
         this.#attackInterval = GMath.randomInt(GG.ENEMY_SETTINGS.minAttackInterval, 
                                                GG.ENEMY_SETTINGS.maxAttackInterval);
@@ -1346,9 +1383,9 @@ class Enemy {
         this.#variations = sprite.variations;
         this.#variation = variation || GMath.randomInt(1, Object.keys(sprite.variations).length);
         this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
-                                              this.#pos.y - this.#sprite.height * 0.5, 
-                                              this.#sprite.width, this.#sprite.height,
-                                              0.8);
+                                  this.#pos.y - this.#sprite.height * 0.5, 
+                                  this.#sprite.width, this.#sprite.height,
+                                  0.8);
     }
 
     update(playerPos) {
@@ -1364,20 +1401,13 @@ class Enemy {
         this.#sprite.drawFromSheet(this.#pos.x, this.#pos.y,
                                    this.#variations[this.#variation].row,
                                    this.#variations[this.#variation].col, this.#angle - 90);
-        if(GG.SETTINGS.showPos) this.#visualizePos();
+        if(GG.SETTINGS.showPos) GDraw.dot(this.pos.x, this.pos.y);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
 
     shoot() {
         EnemyProjectileController.shoot(this.#pos, this.#angle, this.#vel);
     }
-
-    #visualizePos() {
-        GG.CTX.beginPath();
-        GG.CTX.arc(this.pos.x, this.pos.y, 5, 0, 2 * Math.PI);
-        GG.CTX.fillStyle = 'lime';
-        GG.CTX.fill();
-    }  
 
     get vel() { return this.#vel; }
     get pos() { return this.#pos; }
@@ -1423,30 +1453,33 @@ class EnemyController {
     static enemies = [];
     static inactive = [];
     static offScreenSpawnOffset = -50;
+    static waveScheduled = false;
+    static destroyedEnemies = 0;
 
-    static createWave(number) {
+    static createWave(_number, reset) {
+        let number = _number || GG.ENEMY_SETTINGS.waveNumber;
+
+        if(reset) this.enemies = [];
+
         for(let i = 0; i < number; i++) {
             this.enemies.push(this.createRandom());
         }
     }
 
     static createRandom() {
-        let enemy = new Enemy(GMath.randomInt(GG.SCREEN_WIDTH * 0.1, 
-                                              GG.SCREEN_WIDTH * 0.9), 
-                              this.offScreenSpawnOffset);
-        
-        enemy.vel = { 
-            x : GMath.randomFloat(-0.2, 0.2), 
-            y : GMath.randomFloat(0.1, 0.35) 
-        };
-        return enemy;
-    }
-
-    static create(pos, vel) {
-
+        let pos = { x : GMath.randomInt(GG.SCREEN_WIDTH * 0.1, GG.SCREEN_WIDTH * 0.9), 
+                    y : this.offScreenSpawnOffset };
+        let vel = { x : GMath.randomFloat(-0.2, 0.2), 
+                    y : GMath.randomFloat(0.3, 1) };
+        return new Enemy(pos, vel);
     }
 
     static update(playerPos) {
+        if(this.waveScheduled) return;
+        if(this.enemies.length === 0) {
+            this.scheduleWave();
+            return;
+        }
 
         for(let i = 0; i < this.enemies.length; i++) {
             let en = this.enemies[i];
@@ -1467,17 +1500,24 @@ class EnemyController {
                 en.shoot();
                 en.lastAttackTime = currentTime;
             }
-            if(GG.SETTINGS.showEnemyVectorToPlayer) this.visualizeVectorToPlayer(playerPos, en.pos);
+            if(GG.SETTINGS.showEnemyVectorToPlayer) GDraw.line(playerPos, en.pos);
             en.update(playerPos);
         }
     }
 
-    static visualizeVectorToPlayer(pPos, ePos) {
-        GG.CTX.beginPath();
-        GG.CTX.moveTo(ePos.x, ePos.y);
-        GG.CTX.lineTo(pPos.x, pPos.y);
-        GG.CTX.strokeStyle = 'lime';
-        GG.CTX.stroke();
+    static scheduleWave(_time) {
+        let time = _time || GG.ENEMY_SETTINGS.waveInterval;
+        this.waveScheduled = true;
+        this.destroyedEnemies = 0;
+        TimeoutController.set(() => {
+            this.createWave();
+            this.waveScheduled = false;
+        }, time);
+    }
+
+    static resetEnemies() {
+        this.enemies = [];
+        this.destroyedEnemies = 0;
     }
 
 }
@@ -1547,6 +1587,105 @@ class EnemyProjectileController {
     static reset(projectile) {
         if(!(projectile instanceof EnemyProjectile)) return;
         this.inactiveProjectiles.unshift(projectile);
+    }
+
+    static resetAll() {
+        while (this.activeProjectiles.length > 0) {
+            let p = this.activeProjectiles.pop();
+            this.inactiveProjectiles.push(p);
+        }
+    }
+
+}
+
+class Timeout {
+
+    id;
+    delay;
+    start;
+    remaining;
+    callback;
+    paused;
+    done;
+
+    constructor(callback, delay) {
+        if (typeof callback !== 'function') {
+            throw new TypeError('Callback Parameter is not a function');
+        }
+
+        this.callback = callback;
+        this.delay = delay;
+        this.remaining = this.delay;
+        this.paused = false;
+        this.done = false;
+        this.#startTimeout();
+    }
+
+    #startTimeout() {
+        this.start = Date.now();
+        this.id = setTimeout(() => { 
+            this.callback(); 
+            this.done = true;
+        }, this.remaining);
+    }
+
+    resume() {
+        if(!this.paused || this.done) return;
+
+        this.paused = false;
+        this.#startTimeout();
+    }
+
+    pause() {
+        this.paused = true;
+        clearTimeout(this.id);
+        this.remaining -= Date.now() - this.start; 
+    }
+
+    clear() {
+        clearTimeout(this.id);
+        this.done = true;
+    }
+
+}
+
+class TimeoutController {
+
+    static timeouts = [];
+
+    static set(callback, delay, name) {
+        if (typeof callback !== 'function') {
+            throw new TypeError('Callback Parameter is not a function');
+        }
+
+        this.timeouts.push(new Timeout(callback, delay, name));
+    }
+
+    static pauseAll() {
+        for(let i = 0; i < this.timeouts.length; i++) {
+            this.timeouts[i].pause();
+        }
+    }
+
+    static resumeAll() {
+        for(let i = 0; i < this.timeouts.length; i++) {
+            this.timeouts[i].resume();
+        }
+    }
+
+    static clearAll() {
+        for(let i = 0; i < this.timeouts.length; i++) {
+            this.timeouts[i].clear();
+        }
+    }
+
+    static update() {
+        for(let i = 0; i < this.timeouts.length; i++) {
+            if(this.timeouts[i].done) {
+                this.timeouts.splice(i, 1);
+                i--;
+            }
+        }
     }
 
 }

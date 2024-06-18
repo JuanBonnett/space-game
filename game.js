@@ -51,8 +51,9 @@ class GG {
             music : 'assets/track1.mp3',
             laser : 'assets/laser.mp3',
             playerExplosion : 'assets/explosion.wav',
+            enemies : ['assets/aliens1.mp3', 'assets/aliens2.mp3'],
         },
-    }
+    };
     static SETTINGS = {
         asteroidPoolSize : 10,
         inittopAsteroidVel : 1,
@@ -64,14 +65,14 @@ class GG {
         showPlayerVector : false,
         showPos : false,
         showEnemyVectorToPlayer : false,
-        enableSound : false,
-        antialiasing : false,
+        enableSound : true,
+        antialiasing : true,
         projectilesPoolSize  : 10,
         baseAsteroidScore : 100,
         baseEnemyScore : 200,
         scoreSlope : 0.00000005,
         gameResetTimeout : 3000,
-    }
+    };
     static PLAYER_SETTINGS = {
         acceleration : 0.02,
         angle : 270,
@@ -83,14 +84,21 @@ class GG {
         projectileSpeed : 25,
         explosionVariation : 4,
         explosionScale : 4,
-    }
+    };
     static ENEMY_SETTINGS = {
-        waveNumber : 3,
+        minWaveNumber : 1,
+        maxWaveNumber : 5,
         waveInterval : 10000,
         projectileSpeed : 5,
         minAttackInterval : 4000, //ms
         maxAttackInterval : 8000,
-    }
+    };
+    static AUDIO_SETTINGS = {
+        musicVolume : 0.8,
+        projectileVolume : 0.4,
+        enemyVolume : 0.4,
+        playerExplosionVolume : 0.8,
+    };
 
     static frame = 0;
 
@@ -238,6 +246,7 @@ class DOMUI {
     static pause = document.getElementById('ui-pause');
     static score = document.getElementById('score-count');
     static record = document.getElementById('record-count');
+    static enemyAlert = document.getElementById('ui-enemy-alert');
 
     static showStartScreen() {
         this.start.style.display = 'flex';
@@ -262,12 +271,19 @@ class DOMUI {
         this.record.innerText = String(r).padStart(10, '0');
     }
 
+    static showEnemyAlert() {
+        this.enemyAlert.style.display = 'flex';
+        setTimeout(() => {
+            this.enemyAlert.style.display = 'none';
+        }, 6000);
+    }
+
     static getScore() { return parseInt(this.score.innerText); }
     static getRecord() { return parseInt(this.record.innerText); }
 
 }
 
-class GDraw {
+class Draw {
 
     static lineColor = 'lime';
     static dotColor = 'lime';
@@ -295,6 +311,14 @@ class GDraw {
 
 }
 
+class GAudio {
+
+    static isPlaying(audio) {
+        return !audio.paused && !audio.ended && audio.currentTime > 0;
+    }
+
+}
+
 class Game {
 
     #paused;
@@ -317,6 +341,7 @@ class Game {
         this.#initPlayer();
         this.#initObjects();
         this.#initInput();
+        this.#initAudio();
     }
 
     #initPlayer() {
@@ -341,7 +366,7 @@ class Game {
 
         //Player
         Input.once('r', () => { 
-            this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
+            this.#player.reset({ x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y });
         });
         Input.track('w');
         Input.keyUp('w', () => this.#player.stopAccel());
@@ -356,14 +381,11 @@ class Game {
 
         //Audio Toggle
         Input.once('m', () => { 
-            if(this.#audio.music.playing) {
-                this.#audio.music.sound.pause();
-                this.#audio.music.playing = false;
+            if(GAudio.isPlaying(this.#audio.music)) {
+                this.#audio.music.pause();
                 GG.SETTINGS.enableSound = false;
-            }
-            else {
-                this.#audio.music.sound.play(); 
-                this.#audio.music.playing = true;
+            } else {
+                this.#audio.music.play(); 
                 GG.SETTINGS.enableSound = true;
             }
         });
@@ -377,20 +399,20 @@ class Game {
 
     #initAudio() {
         let assets = GG.ASSETS.AUDIO;
+        let settings = GG.AUDIO_SETTINGS;
 
         this.#audio = { 
-            music : { 
-                sound : new Audio(), 
-                playing : false,
-            },
+            music : new Audio(),
             playerExplosion : new Audio(),
+            enemies : [new Audio(), new Audio()],
         };
-        this.#audio.music.sound.src = assets.music;
+        this.#audio.music.src = assets.music;
         this.#audio.playerExplosion.src = assets.playerExplosion;
-        if(GG.SETTINGS.enableSound) {
-            this.#audio.music.sound.play();
-            this.#audio.music.playing = true;
-        }
+        this.#audio.enemies[0].src = assets.enemies[0];
+        this.#audio.enemies[1].src = assets.enemies[1];
+
+        this.#audio.enemies[0].volume = settings.enemyVolume;
+        this.#audio.enemies[1].volume = settings.enemyVolume;
     }
 
     #initBackgrounds() {
@@ -403,7 +425,9 @@ class Game {
 
     #startGame() {
         this.#paused = false;
-        this.#initAudio();
+        if(GG.SETTINGS.enableSound) {
+            this.#audio.music.play();
+        }
         DOMUI.hideStartScreen();
         EnemyController.scheduleWave();
         Input.lock('enter');
@@ -425,6 +449,15 @@ class Game {
         if(AsteroidController.collidedWithPlayer) this.#playerCollidedWithAasteroid();
         if(EnemyController.destroyedEnemies > 0) this.#playerKilledEnemy();
         if(EnemyProjectileController.playerHit) this.#enemyHitPlayer();
+
+        if(GG.SETTINGS.enableSound) {
+            if(EnemyController.enemies.length > 0 && !GAudio.isPlaying(this.#audio.enemies[0])) {
+                this.#audio.enemies[0].play();
+            } else if (EnemyController.enemies.length === 0 && GAudio.isPlaying(this.#audio.enemies[0])) {
+                this.#audio.enemies[0].pause();
+                this.#audio.enemies[0].currentTime = 0;
+            }
+        }
 
         GG.frame++;
     }
@@ -503,8 +536,7 @@ class Game {
             this.#initObjects();
             this.#renderPlayer = true;
             this.#player.isInvulnerable = false;
-            this.#player.reset();
-            this.#player.pos = { x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y };
+            this.#player.reset({ x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y });
             this.#resetScore();
             EnemyController.resetEnemies();
             EnemyProjectileController.resetAll();
@@ -786,7 +818,7 @@ class Player {
     draw() {
         this.#sprite.animateRow(this.pos.x, this.pos.y, this.#angle);
         if(GG.SETTINGS.showPlayerVector) this.#visualizeVelocityVector();
-        if(GG.SETTINGS.showPos) GDraw.dot(this.pos.x, this.pos.y);
+        if(GG.SETTINGS.showPos) Draw.dot(this.pos.x, this.pos.y);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
 
@@ -864,19 +896,25 @@ class Player {
         this.#rotation -= this.#torque; 
     }
 
-    reset() {
+    reset(_pos) {
+        let settings = GG.PLAYER_SETTINGS;
+
+        if(_pos != 'undefined') this.#pos = _pos;
+        else this.#pos = { x : 0, y : 0 };
+        
         this.sprite.setAnimationState('blinking');
-        Input.lock('w');
-        this.#initSettings();
+        this.#angle = settings.angle;
+        this.#rotation = settings.rotation;
+        this.#vel = { ...settings.vel };
+        this.#isAccelerating = false;
 
         TimeoutController.set(() => {
             this.sprite.setAnimationState('iddle');
-            Input.unlock('w');
         }, 1000);
     }
 
     #visualizeVelocityVector(scale = 50) {
-        GDraw.line(this.pos, { x : this.pos.x + this.#vel.x * scale, y : this.pos.y + this.#vel.y * scale });
+        Draw.line(this.pos, { x : this.pos.x + this.#vel.x * scale, y : this.pos.y + this.#vel.y * scale });
     }
 
     get pos() { return this.#pos; }
@@ -917,15 +955,16 @@ class Projectile {
     #enableAudio;
     #hitBox;
 
-    constructor(audio = true) {
+    constructor(enableAudio = true) {
         let sprite = GG.ASSETS.SPRITES.PROJECTILE;
 
-        this.#enableAudio = audio;
+        this.#enableAudio = enableAudio;
         this.#speed = GG.PLAYER_SETTINGS.projectileSpeed;
         this.#sprite = new Sprite(sprite.src, sprite.width, sprite.height, 0.5);
         if(this.#enableAudio) {
             this.#sound = new Audio();
             this.#sound.src = GG.ASSETS.AUDIO.laser;
+            this.#sound.volume = GG.AUDIO_SETTINGS.projectileVolume;
         }
     }
 
@@ -1068,9 +1107,9 @@ class Asteroid {
         this.#variations = sprite.variations;
         this.#variation = variation || GMath.randomInt(1, Object.keys(sprite.variations).length);
         this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
-                                              this.#pos.y - this.#sprite.height * 0.5, 
-                                              this.#sprite.width, this.#sprite.height,
-                                              0.8);
+                                  this.#pos.y - this.#sprite.height * 0.5, 
+                                  this.#sprite.width, this.#sprite.height,
+                                  0.8);
     }
 
     update() {
@@ -1078,7 +1117,7 @@ class Asteroid {
         this.#pos.y += this.#vel.y;
 
         this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
-                                     this.pos.y - this.#sprite.height * 0.5);
+                               this.pos.y - this.#sprite.height * 0.5);
 
         if(this.#angle < 0 ) this.#angle = 360;
         else if(this.#angle > 360) this.#angle = 0;
@@ -1090,7 +1129,7 @@ class Asteroid {
                                    this.#variations[this.#variation].row,
                                    this.#variations[this.#variation].col, this.#angle);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
-        if(GG.SETTINGS.showPos) GDraw.dot(this.#pos.x, this.#pos.y);
+        if(GG.SETTINGS.showPos) Draw.dot(this.#pos.x, this.#pos.y);
     }
 
     get pos() { return this.#pos; }
@@ -1301,7 +1340,7 @@ class HitBox {
     }
 
     draw() {
-        GDraw.box(this.x, this.y, this.#width, this.#height);
+        Draw.box(this.x, this.y, this.#width, this.#height);
     }
 
     get width() { return this.#width; }
@@ -1401,7 +1440,7 @@ class Enemy {
         this.#sprite.drawFromSheet(this.#pos.x, this.#pos.y,
                                    this.#variations[this.#variation].row,
                                    this.#variations[this.#variation].col, this.#angle - 90);
-        if(GG.SETTINGS.showPos) GDraw.dot(this.pos.x, this.pos.y);
+        if(GG.SETTINGS.showPos) Draw.dot(this.pos.x, this.pos.y);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
 
@@ -1457,9 +1496,9 @@ class EnemyController {
     static destroyedEnemies = 0;
 
     static createWave(_number, reset) {
-        let number = _number || GG.ENEMY_SETTINGS.waveNumber;
+        let number = _number || GG.ENEMY_SETTINGS.minWaveNumber;
 
-        if(reset) this.enemies = [];
+        if(reset) this.resetEnemies();
 
         for(let i = 0; i < number; i++) {
             this.enemies.push(this.createRandom());
@@ -1500,18 +1539,23 @@ class EnemyController {
                 en.shoot();
                 en.lastAttackTime = currentTime;
             }
-            if(GG.SETTINGS.showEnemyVectorToPlayer) GDraw.line(playerPos, en.pos);
+            if(GG.SETTINGS.showEnemyVectorToPlayer) Draw.line(playerPos, en.pos);
             en.update(playerPos);
         }
     }
 
-    static scheduleWave(_time) {
-        let time = _time || GG.ENEMY_SETTINGS.waveInterval;
+    static scheduleWave(_time, _number) {
+        let time = _time || GMath.randomInt(GG.ENEMY_SETTINGS.waveInterval, 
+                                            GG.ENEMY_SETTINGS.waveInterval * 2);
+        let number = _number || GMath.randomInt(GG.ENEMY_SETTINGS.minWaveNumber,
+                                                GG.ENEMY_SETTINGS.maxWaveNumber);
+
         this.waveScheduled = true;
         this.destroyedEnemies = 0;
         TimeoutController.set(() => {
-            this.createWave();
+            this.createWave(number);
             this.waveScheduled = false;
+            DOMUI.showEnemyAlert();
         }, time);
     }
 

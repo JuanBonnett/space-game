@@ -363,6 +363,8 @@ class Game {
         Input.once('enter', () => {
             this.#startGame();
         });
+        Input.once('p', () => this.pause());
+        Input.once('escape', () => this.pause());
 
         //Player
         Input.once('r', () => { 
@@ -389,12 +391,6 @@ class Game {
                 GG.SETTINGS.enableSound = true;
             }
         });
-
-        Input.once('e', () => {
-            EnemyController.enemies[0].shoot();
-        });
-
-        Input.once('p', () => this.pause());
     }
 
     #initAudio() {
@@ -437,13 +433,14 @@ class Game {
         if(this.#paused) return;
 
         this.draw();
-        this.#playerLogic();
         ProjectileController.update(); 
         AsteroidController.update(this.#player.hitBox);
         ExplosionController.update();
         EnemyController.update(this.#player.pos);
         EnemyProjectileController.update(this.#player.hitBox);
         TimeoutController.update();
+
+        this.#playerLogic();
 
         if(AsteroidController.destroyedAsteroidsScales.length > 0) this.#projectileCollidedWithAsteroid();
         if(AsteroidController.collidedWithPlayer) this.#playerCollidedWithAasteroid();
@@ -803,7 +800,7 @@ class Player {
         this.#initSettings();
         this.#hitBox = new HitBox(this.pos.x, this.pos.y, 
                                   this.#sprite.width, this.#sprite.height,
-                                0.7);
+                                  0.7);
     }
 
     update() {
@@ -811,7 +808,7 @@ class Player {
         this.#updatePosition();
         this.#updateOrientation();
         this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
-                                     this.pos.y - this.#sprite.height * 0.5);
+                               this.pos.y - this.#sprite.height * 0.5);
         this.draw();
     }
 
@@ -976,9 +973,9 @@ class Projectile {
             y : Math.sin(GMath.toRadians(this.#angle)) * this.#speed + pv.y, 
         }
         this.#hitBox = new HitBox(this.#pos.x - this.#sprite.width * 0.5, 
-                                              this.#pos.y - this.#sprite.height * 0.5, 
-                                              this.#sprite.width, this.#sprite.height,
-                                              0.5);
+                                  this.#pos.y - this.#sprite.height * 0.5, 
+                                  this.#sprite.width, this.#sprite.height,
+                                  0.5);
         if(GG.SETTINGS.enableSound && this.#enableAudio) this.playSound();
     }
 
@@ -987,7 +984,7 @@ class Projectile {
         this.#pos.y += this.#vel.y;
 
         this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
-                                     this.pos.y - this.#sprite.height * 0.5);
+                               this.pos.y - this.#sprite.height * 0.5);
     }
 
     draw() {

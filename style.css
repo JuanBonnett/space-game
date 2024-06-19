@@ -1,11 +1,13 @@
 * {
     box-sizing: border-box;
 }
+
 body, html {
     margin: 0;
     padding: 0;
-    font-family: 'Consolas', 'Courier New', Courier, monospace;
+    font-family: 'Courier New', 'Consolas', Courier, monospace;
 }
+
 body {
     display: flex;
     flex-direction: column;
@@ -14,6 +16,7 @@ body {
     height: 100dvh;
     background-color: black;
 }
+
 #game-canvas {
     width: 100dvw;
     height: 100dvh;
@@ -63,7 +66,14 @@ body {
 
 #ui-pause h1 {
     font-size: 3em;
-    color: #fff;
+    color: #fd3884;
+}
+
+#ui-pause p {
+    line-height: 1.5em;
+    margin: 0px;
+    padding: 0px;
+    font-size: 1.3em;
 }
 
 #ui-score {
@@ -248,7 +258,7 @@ body {
     left: 0;
     bottom: 0;
     right: 0;
-    background: rgba(18, 16, 16, 0.1);
+    background: rgba(18, 16, 16, 0.05);
     opacity: 0;
     z-index: 2;
     pointer-events: none;

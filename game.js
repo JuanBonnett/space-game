@@ -29,15 +29,15 @@ class GG {
                                 12 : { row : 2, col : 3 }
                             }
             },
-            ENEMIES :      { src : 'assets/enemies.png',          width : 90,   height : 74,
-                             variations : {
-                                1 :  { row : 0, col : 0 },
-                                2 :  { row : 0, col : 1 },
-                                3 :  { row : 0, col : 2 },
-                                4 :  { row : 0, col : 3 },
-                                5 :  { row : 0, col : 4 },
-                                6 :  { row : 0, col : 5 },
-                            }
+            ENEMIES : { src : 'assets/enemies.png',          width : 90,   height : 74,
+                        variations : {
+                        1 :  { row : 0, col : 0 },
+                        2 :  { row : 0, col : 1 },
+                        3 :  { row : 0, col : 2 },
+                        4 :  { row : 0, col : 3 },
+                        5 :  { row : 0, col : 4 },
+                        6 :  { row : 0, col : 5 },
+                    }
             },
             EXPLOSIONS : {
                 1 : { src : 'assets/explosion1.png', width : 96, height : 96, },
@@ -50,8 +50,9 @@ class GG {
         AUDIO : { 
             music : 'assets/track1.mp3',
             laser : 'assets/laser.mp3',
-            playerExplosion : 'assets/explosion.wav',
+            playerExplosion : 'assets/explosion.mp3',
             enemies : ['assets/aliens1.mp3', 'assets/aliens2.mp3'],
+            pause : 'assets/beep.mp3',
         },
     };
     static SETTINGS = {
@@ -319,6 +320,12 @@ class GAudio {
 
 }
 
+class ResourceLoader {
+
+    
+
+}
+
 class Game {
 
     #paused;
@@ -383,13 +390,7 @@ class Game {
 
         //Audio Toggle
         Input.once('m', () => { 
-            if(GAudio.isPlaying(this.#audio.music)) {
-                this.#audio.music.pause();
-                GG.SETTINGS.enableSound = false;
-            } else {
-                this.#audio.music.play(); 
-                GG.SETTINGS.enableSound = true;
-            }
+            this.toggleSound();
         });
     }
 
@@ -401,6 +402,7 @@ class Game {
             music : new Audio(),
             playerExplosion : new Audio(),
             enemies : [new Audio(), new Audio()],
+            pause : new Audio(),
         };
         this.#audio.music.src = assets.music;
         this.#audio.playerExplosion.src = assets.playerExplosion;
@@ -409,6 +411,8 @@ class Game {
 
         this.#audio.enemies[0].volume = settings.enemyVolume;
         this.#audio.enemies[1].volume = settings.enemyVolume;
+
+        this.#audio.pause.src = assets.pause;
     }
 
     #initBackgrounds() {
@@ -466,14 +470,29 @@ class Game {
     }
 
     pause() {
+        this.#audio.pause.play();
+
         if(this.#paused) {
             this.#paused = false;
+            if(GG.SETTINGS.enableSound) this.#audio.music.play();
             TimeoutController.resumeAll();
         } else {
             this.#paused = true;
+            this.#audio.music.pause();
             TimeoutController.pauseAll();
         }
+
         DOMUI.togglePause(this.#paused);
+    }
+
+    toggleSound() {
+        if(GAudio.isPlaying(this.#audio.music)) {
+            this.#audio.music.pause();
+            GG.SETTINGS.enableSound = false;
+        } else {
+            this.#audio.music.play(); 
+            GG.SETTINGS.enableSound = true;
+        }
     }
 
     #playerLogic() {

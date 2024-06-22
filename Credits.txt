@@ -1,7 +1,8 @@
-Enemy Sounds: Erich Izdepski
-Asteroids: The Leafy Lemur
-Lasers: Rawdanitsu
+Enemy Sounds: Erich Izdepski opengame.org
+Asteroids: The Leafy Lemur opengame.org
+Lasers: Rawdanitsu opengame.org
 Backgrounds: Deep-Fold
-Explosion Sound: Rick Hoppmann
+Explosion Sound: Rick Hoppmann opengame.org
 Explosion Sprites: SORRY COULDN'T FIND AUTHOR
 Enemy Sprites: SORRY COULDN'T FIND AUTHOR
+Pause Beep: qubodup opengame.org

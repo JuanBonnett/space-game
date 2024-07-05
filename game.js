@@ -1,3 +1,6 @@
+//TODO:
+//IMPROVE PAUSE LOGIC AND PAUSE SOUND LOGIC IF POSSIBLE
+
 class GG {
 
     static CANVAS = document.getElementById('game-canvas');
@@ -29,7 +32,7 @@ class GG {
                                 12 : { row : 2, col : 3 }
                             }
             },
-            ENEMIES : { src : 'assets/enemies.png',          width : 90,   height : 74,
+            ENEMIES : { src : 'assets/enemies-2.png',          width : 90,   height : 74,
                         variations : {
                         1 :  { row : 0, col : 0 },
                         2 :  { row : 0, col : 1 },
@@ -51,7 +54,9 @@ class GG {
             music : 'assets/track1.mp3',
             laser : 'assets/laser.mp3',
             playerExplosion : 'assets/explosion.mp3',
-            enemies : ['assets/aliens1.mp3', 'assets/aliens2.mp3'],
+            enemyExplosion : 'assets/enemy-explosion.mp3',
+            enemy1 : 'assets/aliens1.mp3', 
+            enemy2 : 'assets/aliens2.mp3',
             pause : 'assets/beep.mp3',
         },
     };
@@ -61,14 +66,16 @@ class GG {
         initlowAsteroidVel : 0.2,
         topAsteroidVel : 1,
         lowAsteroidVel : 0.2,
-        explosionScale : 2,
+        asteroidExplosionScale : 2,
+        asteroidExplosionsPoolSize : 8,
+        enemyExplosionsPoolSize : 6,
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
         showEnemyVectorToPlayer : false,
         enableSound : true,
         antialiasing : true,
-        projectilesPoolSize  : 10,
+        projectilesPoolSize  : 15,
         baseAsteroidScore : 100,
         baseEnemyScore : 200,
         scoreSlope : 0.00000005,
@@ -87,18 +94,19 @@ class GG {
         explosionScale : 4,
     };
     static ENEMY_SETTINGS = {
-        minWaveNumber : 1,
+        minWaveNumber : 2,
         maxWaveNumber : 5,
         waveInterval : 10000,
         projectileSpeed : 5,
         minAttackInterval : 4000, //ms
         maxAttackInterval : 8000,
+        explosionScale : 4,
     };
     static AUDIO_SETTINGS = {
-        musicVolume : 0.8,
+        musicVolume : 0.6,
         projectileVolume : 0.4,
         enemyVolume : 0.4,
-        playerExplosionVolume : 0.8,
+        playerExplosionVolume : 0.6,
     };
 
     static frame = 0;
@@ -274,7 +282,7 @@ class DOMUI {
 
     static showEnemyAlert() {
         this.enemyAlert.style.display = 'flex';
-        setTimeout(() => {
+        TimeoutController.set(() => {
             this.enemyAlert.style.display = 'none';
         }, 6000);
     }
@@ -322,7 +330,7 @@ class GAudio {
 
 class ResourceLoader {
 
-    
+    //TODO: Download All Resources before being able to start the game
 
 }
 
@@ -363,35 +371,39 @@ class Game {
         ProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
         AsteroidController.createPool(GG.SETTINGS.asteroidPoolSize);
         EnemyProjectileController.createPool(GG.SETTINGS.projectilesPoolSize);
+        ExplosionController.createEnemyExplosionsPool(GG.SETTINGS.enemyExplosionsPoolSize);
+        ExplosionController.createAsteroidExplosionsPool(GG.SETTINGS.asteroidExplosionsPoolSize);
     }
 
     #initInput() {
         //UI
         Input.once('enter', () => {
             this.#startGame();
-        });
-        Input.once('p', () => this.pause());
-        Input.once('escape', () => this.pause());
 
-        //Player
-        Input.once('r', () => { 
-            this.#player.reset({ x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y });
+            Input.once('p', () => this.pause());
+            Input.once('escape', () => this.pause());
+            //Player
+            Input.once('r', () => { 
+                this.#player.reset({ x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y });
+            });
+            Input.track('w');
+            Input.keyUp('w', () => this.#player.stopAccel());
+            Input.keyDown('d', () => this.#player.rotateR());
+            Input.keyDown('a', () => this.#player.rotateL());
+            
+            //Gameplay
+            Input.once(' ', () => {
+                if(this.#paused) return;
+                this.#player.shoot();
+            });
+
+            //Audio Toggle
+            Input.once('m', () => { 
+                this.toggleSound();
+            });
         });
-        Input.track('w');
-        Input.keyUp('w', () => this.#player.stopAccel());
-        Input.keyDown('d', () => this.#player.rotateR());
-        Input.keyDown('a', () => this.#player.rotateL());
+
         
-        //Gameplay
-        Input.once(' ', () => {
-            if(this.#paused) return;
-            this.#player.shoot();
-        });
-
-        //Audio Toggle
-        Input.once('m', () => { 
-            this.toggleSound();
-        });
     }
 
     #initAudio() {
@@ -399,20 +411,16 @@ class Game {
         let settings = GG.AUDIO_SETTINGS;
 
         this.#audio = { 
-            music : new Audio(),
-            playerExplosion : new Audio(),
-            enemies : [new Audio(), new Audio()],
-            pause : new Audio(),
+            music : new Audio(assets.music),
+            playerExplosion : new Audio(assets.playerExplosion),
+            enemy1 : new Audio(assets.enemy1),
+            enemy2 : new Audio(assets.enemy2),
+            pause : new Audio(assets.pause),
         };
-        this.#audio.music.src = assets.music;
-        this.#audio.playerExplosion.src = assets.playerExplosion;
-        this.#audio.enemies[0].src = assets.enemies[0];
-        this.#audio.enemies[1].src = assets.enemies[1];
 
-        this.#audio.enemies[0].volume = settings.enemyVolume;
-        this.#audio.enemies[1].volume = settings.enemyVolume;
-
-        this.#audio.pause.src = assets.pause;
+        this.#audio.enemy1.volume = settings.enemyVolume;
+        this.#audio.enemy2.volume = settings.enemyVolume;
+        this.#audio.music.volume = settings.musicVolume;
     }
 
     #initBackgrounds() {
@@ -452,11 +460,11 @@ class Game {
         if(EnemyProjectileController.playerHit) this.#enemyHitPlayer();
 
         if(GG.SETTINGS.enableSound) {
-            if(EnemyController.enemies.length > 0 && !GAudio.isPlaying(this.#audio.enemies[0])) {
-                this.#audio.enemies[0].play();
-            } else if (EnemyController.enemies.length === 0 && GAudio.isPlaying(this.#audio.enemies[0])) {
-                this.#audio.enemies[0].pause();
-                this.#audio.enemies[0].currentTime = 0;
+            if(EnemyController.enemies.length > 0 && !GAudio.isPlaying(this.#audio.enemy1)) {
+                this.#audio.enemy1.play();
+            } else if (EnemyController.enemies.length === 0 && GAudio.isPlaying(this.#audio.enemy1)) {
+                this.#audio.enemy1.pause();
+                this.#audio.enemy1.currentTime = 0;
             }
         }
 
@@ -474,23 +482,41 @@ class Game {
 
         if(this.#paused) {
             this.#paused = false;
-            if(GG.SETTINGS.enableSound) this.#audio.music.play();
+            Input.unlock('m');
+            if(GG.SETTINGS.enableSound) this.resumeSound();
             TimeoutController.resumeAll();
         } else {
             this.#paused = true;
-            this.#audio.music.pause();
+            Input.lock('m');
+            this.pauseSound();
             TimeoutController.pauseAll();
         }
 
         DOMUI.togglePause(this.#paused);
     }
 
+    pauseSound() {
+        this.#audio.music.pause();
+        if(GAudio.isPlaying(this.#audio.enemy1) || GAudio.isPlaying(this.#audio.enemy2)) {
+            this.#audio.enemy1.pause();
+            this.#audio.enemy2.pause();
+        }
+    }
+
+    resumeSound() {
+        this.#audio.music.play(); 
+        if(EnemyController.enemies.length > 0) {
+            this.#audio.enemy1.play();
+            this.#audio.enemy2.play();
+        }
+    }
+
     toggleSound() {
         if(GAudio.isPlaying(this.#audio.music)) {
-            this.#audio.music.pause();
+            this.pauseSound();
             GG.SETTINGS.enableSound = false;
         } else {
-            this.#audio.music.play(); 
+            this.resumeSound();
             GG.SETTINGS.enableSound = true;
         }
     }
@@ -544,9 +570,7 @@ class Game {
         if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
         this.#player.isInvulnerable = true;
         this.#renderPlayer = false;
-        ExplosionController.explode(this.#player.pos, 
-                                    GG.PLAYER_SETTINGS.explosionScale, 
-                                    GG.PLAYER_SETTINGS.explosionVariation);
+        ExplosionController.explodePlayer(this.#player.pos);
         
         TimeoutController.set(() => {
             this.#initObjects();
@@ -755,7 +779,7 @@ class AnimatedSprite extends Sprite {
                 this.#currentFrame = this.#startFrame;
                 if(this.#currentRow < this.#rows) this.#currentRow++;
                 else { 
-                    this.#currentRow = 0; this.#animationDone = true; 
+                    this.#animationDone = true; 
                 }
             }
         }
@@ -779,6 +803,13 @@ class AnimatedSprite extends Sprite {
         this.#startFrame = state.startFrame;
         this.#totalFrames = state.totalFrames;
         this.#staggerFrames = state.staggerFrames;
+    }
+
+    reset() {
+        this.#startFrame = 0;
+        this.#currentRow = 0;
+        this.#currentFrame = this.#startFrame;
+        this.#animationDone = false;
     }
 
     get activeState() { return this.#animationStates[this.#activeState]; }
@@ -995,7 +1026,7 @@ class Projectile {
                                   this.#pos.y - this.#sprite.height * 0.5, 
                                   this.#sprite.width, this.#sprite.height,
                                   0.5);
-        if(GG.SETTINGS.enableSound && this.#enableAudio) this.playSound();
+        if(GG.SETTINGS.enableSound && this.#enableAudio) this.#sound.play();
     }
 
     update() {
@@ -1052,7 +1083,7 @@ class ProjectileController {
                     if(p.hitBox.SATCollides(a.hitBox)) {
                         toBeRemoved.push(p);
                         AsteroidController.destroyedAsteroidsScales.push(a.sprite.scale);
-                        ExplosionController.explode(a.pos, a.sprite.scale * GG.SETTINGS.explosionScale);
+                        ExplosionController.explodeAsteroid(a.pos, a.sprite.scale * GG.SETTINGS.asteroidExplosionScale);
                         AsteroidController.respawn(a);
                     }
                 }
@@ -1061,7 +1092,7 @@ class ProjectileController {
                     if(p.hitBox.SATCollides(en.hitBox)) {
                         toBeRemoved.push(p);
                         EnemyController.destroyedEnemies++;
-                        ExplosionController.explode(en.pos, en.sprite.scale * GG.SETTINGS.explosionScale, 5);
+                        ExplosionController.explodeEnemy(en.pos);
                         EnemyController.enemies.splice(j, 1);
                         j--;
                     }
@@ -1369,14 +1400,17 @@ class Explosion {
     #x; #y;
     #sprite;
     #rotation;
+    #sound;
 
-    constructor(x, y, scale, _variation) {
+    constructor(x, y, scale, _variation, soundSrc) {
         let variation = _variation || GMath.randomInt(1, 3);
         let sprite = GG.ASSETS.SPRITES.EXPLOSIONS[variation];
         this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, scale || 1, 1, 64, 8, 8, true);
         this.#x = x;
         this.#y = y;
         this.#rotation = GMath.randomInt(1, 360);
+        if(soundSrc) this.#sound = new Audio(soundSrc);
+        else this.#sound = undefined;
     }
 
     update() {}
@@ -1385,28 +1419,134 @@ class Explosion {
         this.#sprite.animate(this.#x, this.#y, this.#rotation);
     }
 
+    reset() {
+        this.#sprite.reset();
+    }
+
     get sprite() { return this.#sprite; }
+    get sound() { return this.#sound; }
+    get animationDone() { return this.#sprite.animationDone; }
+
+    set x(x) {
+        if(typeof x !== 'number') {
+            throw new TypeError('X must be a number');
+        }
+        this.#x = x;
+    } 
+    set y(y) {
+        if(typeof y !== 'number') {
+            throw new TypeError('Y must be a number');
+        }
+        this.#y = y;
+    }
+
+}
+
+class EnemyExplosion extends Explosion {
+
+    constructor(x, y) {
+        super(x, y, GG.ENEMY_SETTINGS.explosionScale, 5, GG.ASSETS.AUDIO.enemyExplosion);
+    }
+
+}
+
+class PlayerExplosion extends Explosion {
+
+    active;
+
+    constructor(x, y) {
+        super(x, y, GG.PLAYER_SETTINGS.explosionScale, 
+              GG.PLAYER_SETTINGS.explosionVariation, 
+              GG.ASSETS.AUDIO.playerExplosion);
+        this.active = false;
+    }
 
 }
 
 class ExplosionController {
 
-    static explosions = [];
+    static inactiveAsteroidExplosions = [];
+    static activeAsteroidExplosions = [];
+    static inactiveEnemyExplosions = [];
+    static activeEnemyExplosions = [];
+    static _playerExplosion = new PlayerExplosion(0, 0);
+
+    static createAsteroidExplosionsPool(number) {
+        for(let i = 0; i < number; i++) {
+            this.inactiveAsteroidExplosions.push(new Explosion(0, 0));
+        }
+    }
+
+    static createEnemyExplosionsPool(number) {
+        for(let i = 0; i < number; i++) {
+            this.inactiveEnemyExplosions.push(new EnemyExplosion(0, 0));
+        }
+    }
 
     static update() {
-        for(let i = 0; i < this.explosions.length; i++) {
-            let e = this.explosions[i];
+        if(this._playerExplosion.active) {
+            this._playerExplosion.draw();
+            if(this._playerExplosion.animationDone) {
+                this._playerExplosion.active = false;
+                this._playerExplosion.sprite.reset();
+            }
+        }
+
+        for(let i = 0; i < this.activeAsteroidExplosions.length; i++) {
+            let e = this.activeAsteroidExplosions[i];
+            
+            e.draw();
+            if(e.animationDone) {
+                e.reset();
+                this.inactiveAsteroidExplosions.unshift(e);
+                this.activeAsteroidExplosions.splice(i, 1);
+            }
+        }
+
+        for(let i = 0; i < this.activeEnemyExplosions.length; i++) {
+            let e = this.activeEnemyExplosions[i];
             
             e.draw();
             if(e.sprite.animationDone) {
-                this.explosions.splice(i, 1);
-                i--;
+                e.reset();
+                this.inactiveEnemyExplosions.unshift(e);
+                this.activeEnemyExplosions.splice(i, 1);
             }
         }
     }
 
-    static explode(pos, scale, variation = undefined) {
-        this.explosions.push(new Explosion(pos.x, pos.y, scale, variation));
+    static explode(pos, scale, variation = undefined, sound = undefined) {
+        let exp = new Explosion(pos.x, pos.y, scale, variation, sound);
+        if(exp.sound) exp.sound.play();
+        this.explosions.push(exp);
+    }
+
+    static explodeAsteroid(pos, scale) {
+        let exp = this.inactiveAsteroidExplosions.pop();
+
+        exp.sprite.scale = scale;
+        exp.x = pos.x;
+        exp.y = pos.y;
+        if (exp.sound && GG.SETTINGS.enableSound) exp.sound.play();
+        this.activeAsteroidExplosions.push(exp);
+    }
+
+    static explodeEnemy(pos) {
+        let exp = this.inactiveEnemyExplosions.pop();
+
+        exp.x = pos.x;
+        exp.y = pos.y;
+        if (exp.sound && GG.SETTINGS.enableSound) exp.sound.play();
+        this.activeEnemyExplosions.push(exp);
+    }
+
+    static explodePlayer(pos) {
+        let exp = this._playerExplosion;
+
+        exp.active = true;
+        exp.x = pos.x;
+        exp.y = pos.y;
+        if(exp.sound && GG.SETTINGS.enableSound) exp.sound.play();
     }
 
 }
@@ -1561,6 +1701,8 @@ class EnemyController {
     }
 
     static scheduleWave(_time, _number) {
+        if(!(GG.ENEMY_SETTINGS.minWaveNumber > 0 && GG.ENEMY_SETTINGS.maxWaveNumber > 0)) return;
+
         let time = _time || GMath.randomInt(GG.ENEMY_SETTINGS.waveInterval, 
                                             GG.ENEMY_SETTINGS.waveInterval * 2);
         let number = _number || GMath.randomInt(GG.ENEMY_SETTINGS.minWaveNumber,
@@ -1713,12 +1855,12 @@ class TimeoutController {
 
     static timeouts = [];
 
-    static set(callback, delay, name) {
+    static set(callback, delay) {
         if (typeof callback !== 'function') {
             throw new TypeError('Callback Parameter is not a function');
         }
 
-        this.timeouts.push(new Timeout(callback, delay, name));
+        this.timeouts.push(new Timeout(callback, delay));
     }
 
     static pauseAll() {

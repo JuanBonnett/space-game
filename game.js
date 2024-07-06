@@ -61,14 +61,14 @@ class GG {
         },
     };
     static SETTINGS = {
-        asteroidPoolSize : 10,
+        asteroidPoolSize : 15,
         inittopAsteroidVel : 1,
         initlowAsteroidVel : 0.2,
-        topAsteroidVel : 1,
-        lowAsteroidVel : 0.2,
-        asteroidExplosionScale : 2,
-        asteroidExplosionsPoolSize : 8,
-        enemyExplosionsPoolSize : 6,
+        topAsteroidVel : 1.5,
+        lowAsteroidVel : 0.5,
+        asteroidExplosionScale : 2.5,
+        asteroidExplosionsPoolSize : 10,
+        enemyExplosionsPoolSize : 3,
         showBoxes : false,
         showPlayerVector : false,
         showPos : false,
@@ -82,10 +82,10 @@ class GG {
         gameResetTimeout : 3000,
     };
     static PLAYER_SETTINGS = {
-        acceleration : 0.02,
+        acceleration : 0.04,
         angle : 270,
         rotation : 0,
-        torque : 0.5,
+        torque : 0.35,
         vel : { x : 0, y : 0 },
         maxVel : 3,
         maxRotation : 3,
@@ -94,11 +94,11 @@ class GG {
         explosionScale : 4,
     };
     static ENEMY_SETTINGS = {
-        minWaveNumber : 2,
-        maxWaveNumber : 5,
+        minWaveNumber : 1,
+        maxWaveNumber : 3,
         waveInterval : 10000,
-        projectileSpeed : 5,
-        minAttackInterval : 4000, //ms
+        projectileSpeed : 7,
+        minAttackInterval : 3000, //ms
         maxAttackInterval : 8000,
         explosionScale : 4,
     };
@@ -107,6 +107,7 @@ class GG {
         projectileVolume : 0.4,
         enemyVolume : 0.4,
         playerExplosionVolume : 0.6,
+        enemyExplosionVolume : 0.8,
     };
 
     static frame = 0;
@@ -1426,6 +1427,7 @@ class Explosion {
     get sprite() { return this.#sprite; }
     get sound() { return this.#sound; }
     get animationDone() { return this.#sprite.animationDone; }
+    get sound() { return this.#sound; }
 
     set x(x) {
         if(typeof x !== 'number') {
@@ -1446,6 +1448,7 @@ class EnemyExplosion extends Explosion {
 
     constructor(x, y) {
         super(x, y, GG.ENEMY_SETTINGS.explosionScale, 5, GG.ASSETS.AUDIO.enemyExplosion);
+        this.sound.volume = GG.AUDIO_SETTINGS.enemyExplosionVolume;
     }
 
 }

@@ -1,0 +1,7 @@
+- See what's causing stutters
+- Add some kind of difficulty increment with time or score
+- Add powerups
+- Add bosses
+- Add different levels with different background images
+- Add Controller Support
+- Add Mobile Controls

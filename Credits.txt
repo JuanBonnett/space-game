@@ -3,6 +3,7 @@ Asteroids: The Leafy Lemur opengame.org
 Lasers: Rawdanitsu opengame.org
 Backgrounds: Deep-Fold
 Explosion Sound: Rick Hoppmann opengame.org
+Asteroid Explosion Sound: Luke.RUSTLTD opengame.org
 Explosion Sprites: SORRY COULDN'T FIND AUTHOR
 Enemy Sprites: SORRY COULDN'T FIND AUTHOR
 Pause Beep: qubodup opengame.org

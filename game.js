@@ -16,6 +16,7 @@ class GG {
             PLAYER :       { src : 'assets/ship-spritesheet.png', width : 100,  height : 100, },
             PROJECTILE :   { src : 'assets/laser.png',            width : 80,   height : 48, },
             ENEMY_PROJ :   { src : 'assets/enemy-laser.png',      width : 80,   height : 48, },
+            SHIELD :       { src : 'assets/shield.png',             width : 128,  height : 128 },
             ASTEROIDS :    { src : 'assets/asteroids-s.png',      width : 64,   height : 64,
                              variations : {
                                 1 :  { row : 0, col : 0 },
@@ -55,6 +56,8 @@ class GG {
             laser : 'assets/laser.mp3',
             playerExplosion : 'assets/explosion.mp3',
             enemyExplosion : 'assets/enemy-explosion.mp3',
+            asteroidExplosion : 'assets/asteroid-explosion.mp3',
+            shield : 'assets/shield.mp3',
             enemy1 : 'assets/aliens1.mp3', 
             enemy2 : 'assets/aliens2.mp3',
             pause : 'assets/beep.mp3',
@@ -98,7 +101,7 @@ class GG {
         maxWaveNumber : 3,
         waveInterval : 10000,
         projectileSpeed : 7,
-        minAttackInterval : 3000, //ms
+        minAttackInterval : 3000,
         maxAttackInterval : 8000,
         explosionScale : 4,
     };
@@ -108,6 +111,7 @@ class GG {
         enemyVolume : 0.4,
         playerExplosionVolume : 0.6,
         enemyExplosionVolume : 0.8,
+        asteroidExplosionVolume : 0.5,
     };
 
     static frame = 0;
@@ -273,11 +277,13 @@ class DOMUI {
 
     static updateScore(score) {
         let s = parseInt(score);
+
         this.score.innerText = String(s).padStart(10, '0');
     }
 
     static updateRecord(record) {
         let r = parseInt(record);
+
         this.record.innerText = String(r).padStart(10, '0');
     }
 
@@ -348,7 +354,6 @@ class Game {
     
     constructor() {
         GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
-        GG.lastUpdateTime = performance.now();
         this.#paused = true;
         this.#score = 0;
         this.#record = 0;
@@ -377,13 +382,11 @@ class Game {
     }
 
     #initInput() {
-        //UI
         Input.once('enter', () => {
             this.#startGame();
 
             Input.once('p', () => this.pause());
             Input.once('escape', () => this.pause());
-            //Player
             Input.once('r', () => { 
                 this.#player.reset({ x : GG.SCREEN_CENTER.x, y : GG.SCREEN_CENTER.y });
             });
@@ -391,20 +394,18 @@ class Game {
             Input.keyUp('w', () => this.#player.stopAccel());
             Input.keyDown('d', () => this.#player.rotateR());
             Input.keyDown('a', () => this.#player.rotateL());
-            
-            //Gameplay
             Input.once(' ', () => {
                 if(this.#paused) return;
                 this.#player.shoot();
             });
-
-            //Audio Toggle
+            Input.once('q', () => {
+                if(this.#player.shield.active) this.#player.shield.active = false;
+                else this.#player.shield.active = true;
+            });
             Input.once('m', () => { 
                 this.toggleSound();
             });
         });
-
-        
     }
 
     #initAudio() {
@@ -502,6 +503,7 @@ class Game {
             this.#audio.enemy1.pause();
             this.#audio.enemy2.pause();
         }
+        if(this.#player.shield.active) this.#player.shield.audio.pause();
     }
 
     resumeSound() {
@@ -510,6 +512,7 @@ class Game {
             this.#audio.enemy1.play();
             this.#audio.enemy2.play();
         }
+        if(this.#player.shield.active) this.#player.shield.audio.play();
     }
 
     toggleSound() {
@@ -542,7 +545,12 @@ class Game {
 
     #enemyHitPlayer() {
         if(this.#player.isInvulnerable) return;
-        this.#playerDestroyed();
+        if(this.#player.shield.active) {
+            this.#player.shield.sprite.setAnimationState('hit');
+            TimeoutController.set(() => this.#player.shield.sprite.setAnimationState('iddle'), 200);
+        } else {
+            this.#playerDestroyed();
+        }
     }
 
     #projectileCollidedWithAsteroid() {
@@ -564,12 +572,19 @@ class Game {
 
     #playerCollidedWithAasteroid() {
         if(this.#player.isInvulnerable) return;
-        this.#playerDestroyed();
+        if(this.#player.shield.active) {
+            this.#player.shield.sprite.setAnimationState('hit');
+            TimeoutController.set(() => this.#player.shield.sprite.setAnimationState('iddle'), 200);
+        } else {
+            this.#playerDestroyed();
+        }
+        AsteroidController.destroyAndRespawnAsteroid(AsteroidController.lastAsteroidToHitPlayer);
     }
 
     #playerDestroyed() {
         if(GG.SETTINGS.enableSound) this.#audio.playerExplosion.play();
         this.#player.isInvulnerable = true;
+        this.#player.ableToShoot = false;
         this.#renderPlayer = false;
         ExplosionController.explodePlayer(this.#player.pos);
         
@@ -839,6 +854,8 @@ class Player {
     #hitBox;
     #isInvulnerable;
     #pos;
+    #shield;
+    #ableToShoot;
 
     constructor() {
         let sprite = GG.ASSETS.SPRITES.PLAYER;
@@ -852,6 +869,7 @@ class Player {
         this.#hitBox = new HitBox(this.pos.x, this.pos.y, 
                                   this.#sprite.width, this.#sprite.height,
                                   0.7);
+        this.#shield = new Shield();
     }
 
     update() {
@@ -860,17 +878,20 @@ class Player {
         this.#updateOrientation();
         this.#hitBox.translate(this.pos.x - this.#sprite.width * 0.5, 
                                this.pos.y - this.#sprite.height * 0.5);
+        this.#shield.pos = this.#pos;
         this.draw();
     }
 
     draw() {
         this.#sprite.animateRow(this.pos.x, this.pos.y, this.#angle);
+        this.#shield.draw();
         if(GG.SETTINGS.showPlayerVector) this.#visualizeVelocityVector();
         if(GG.SETTINGS.showPos) Draw.dot(this.pos.x, this.pos.y);
         if(GG.SETTINGS.showBoxes) this.#hitBox.draw();
     }
 
     shoot() {
+        if(!this.#ableToShoot) return;
         ProjectileController.shoot(this.#pos, this.#angle, this.#vel);
     }
 
@@ -886,6 +907,7 @@ class Player {
         this.#maxVel = settings.maxVel;
         this.#maxRotation = settings.maxRotation;
         this.#isAccelerating = false;
+        this.#ableToShoot = true;
     }
 
     #updateFromInput() {
@@ -955,6 +977,7 @@ class Player {
         this.#rotation = settings.rotation;
         this.#vel = { ...settings.vel };
         this.#isAccelerating = false;
+        this.#ableToShoot = true;
 
         TimeoutController.set(() => {
             this.sprite.setAnimationState('iddle');
@@ -975,6 +998,8 @@ class Player {
     get isAccelerating() { return this.#isAccelerating; }
     get hitBox() { return this.#hitBox; }
     get isInvulnerable() { return this.#isInvulnerable; }
+    get shield() { return this.#shield; }
+    get ableToShoot() { return this.#ableToShoot; }
 
     set pos(pos) {
         if (typeof pos !== 'object' || pos === null) {
@@ -988,6 +1013,10 @@ class Player {
     set isInvulnerable(val) {
         if(val !== true && val !== false) return;
         this.#isInvulnerable = val;
+    }
+    set ableToShoot(val) {
+        if(val !== true && val !== false) return;
+        this.#ableToShoot = val;
     }
 
 }
@@ -1081,6 +1110,7 @@ class ProjectileController {
                 p.draw();
                 for(let j = 0; j < AsteroidController.asteroids.length; j++) {
                     let a = AsteroidController.asteroids[j];
+
                     if(p.hitBox.SATCollides(a.hitBox)) {
                         toBeRemoved.push(p);
                         AsteroidController.destroyedAsteroidsScales.push(a.sprite.scale);
@@ -1090,6 +1120,7 @@ class ProjectileController {
                 }
                 for(let j = 0; j < EnemyController.enemies.length; j++) {
                     let en = EnemyController.enemies[j];
+
                     if(p.hitBox.SATCollides(en.hitBox)) {
                         toBeRemoved.push(p);
                         EnemyController.destroyedEnemies++;
@@ -1104,6 +1135,7 @@ class ProjectileController {
 
         for(let i = 0; i < toBeRemoved.length; i++) {
             let p = toBeRemoved[i];
+
             this.reset(p);
         }
 
@@ -1120,6 +1152,7 @@ class ProjectileController {
 
     static shoot(pos, a, pv) {
         let p = this.inactiveProjectiles.pop();
+
         p.init(pos, a, pv);
         this.activeProjectiles.push(p);
     }
@@ -1217,6 +1250,7 @@ class AsteroidController {
     static minScale = 0.5;
     static collidedWithPlayer = false;
     static destroyedAsteroidsScales = [];
+    static lastAsteroidToHitPlayer = undefined;
     static sbb = 100; //Screen boundaries buffer
     static asb = { //Asteroid spawn boundaries
         0 : { 
@@ -1240,8 +1274,8 @@ class AsteroidController {
         }
     };
 
-    static update(hitBox = undefined) {
-        this.collidedWithPlayer = false;
+    static update(playerHitBox = undefined) {
+        if(this.collidedWithPlayer) this.collidedWithPlayer = false;
 
         if(this.asteroids.length < GG.SETTINGS.asteroidPoolSize) {
             this.asteroids.push(this.createRandom());
@@ -1252,6 +1286,7 @@ class AsteroidController {
 
             a.update();
             a.draw();
+
             if(a.pos.x > GG.SCREEN_WIDTH + a.sprite.width) {
                 a.pos.x = 0 - a.sprite.width;
             } else if (a.pos.x  < 0 - a.sprite.width) {
@@ -1262,9 +1297,10 @@ class AsteroidController {
             } else if (a.pos.y < 0 - a.sprite.height) {
                 a.pos.y = GG.SCREEN_HEIGHT + a.sprite.height;
             }
-            if(hitBox instanceof HitBox) {
-                if(a.hitBox.SATCollides(hitBox)) {
+            if(playerHitBox instanceof HitBox) {
+                if(a.hitBox.SATCollides(playerHitBox)) {
                     this.collidedWithPlayer = true;
+                    this.lastAsteroidToHitPlayer = a;
                 }
             }
         }
@@ -1325,6 +1361,11 @@ class AsteroidController {
         asteroid.pos = { x : spawn.pos.x, y : spawn.pos.y };
         asteroid.vel = { x : spawn.vel.x, y : spawn.vel.y };
         asteroid.rotation = spawn.rotation;
+    }
+
+    static destroyAndRespawnAsteroid(a) {
+        ExplosionController.explodeAsteroid(a.pos, a.sprite.scale * GG.SETTINGS.asteroidExplosionScale);
+        AsteroidController.respawn(a);
     }
 
 }
@@ -1406,6 +1447,7 @@ class Explosion {
     constructor(x, y, scale, _variation, soundSrc) {
         let variation = _variation || GMath.randomInt(1, 3);
         let sprite = GG.ASSETS.SPRITES.EXPLOSIONS[variation];
+
         this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, scale || 1, 1, 64, 8, 8, true);
         this.#x = x;
         this.#y = y;
@@ -1476,7 +1518,10 @@ class ExplosionController {
 
     static createAsteroidExplosionsPool(number) {
         for(let i = 0; i < number; i++) {
-            this.inactiveAsteroidExplosions.push(new Explosion(0, 0));
+            let ex = new Explosion(0, 0, 1, undefined, GG.ASSETS.AUDIO.asteroidExplosion);
+
+            ex.sound.volume = GG.AUDIO_SETTINGS.asteroidExplosionVolume;
+            this.inactiveAsteroidExplosions.push(ex);
         }
     }
 
@@ -1516,12 +1561,6 @@ class ExplosionController {
                 this.activeEnemyExplosions.splice(i, 1);
             }
         }
-    }
-
-    static explode(pos, scale, variation = undefined, sound = undefined) {
-        let exp = new Explosion(pos.x, pos.y, scale, variation, sound);
-        if(exp.sound) exp.sound.play();
-        this.explosions.push(exp);
     }
 
     static explodeAsteroid(pos, scale) {
@@ -1892,6 +1931,62 @@ class TimeoutController {
             }
         }
     }
+
+}
+
+class Shield {
+
+    #pos;
+    #sprite;
+    #active;
+    #audio;
+
+    constructor(pos) {
+        let sprite = GG.ASSETS.SPRITES.SHIELD;
+
+        this.#pos = pos || { x : 0, y : 0 };
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7, 1, 2, 2, 1, false);
+        this.#active = false;
+        this.#sprite.createAnimationState('iddle', 0, 0, 1, 1);
+        this.#sprite.createAnimationState('hit', 1, 0, 1, 1);
+        this.#sprite.setAnimationState('iddle');
+        this.#audio = new Audio(GG.ASSETS.AUDIO.shield);
+        this.#audio.loop = true;
+    }
+
+    update() {}
+
+    draw() {
+        if(!this.#active) return;
+        this.#sprite.animateRow(this.#pos.x, this.#pos.y, 0);
+    }
+
+    set pos(pos) {
+        if (typeof pos !== 'object' || pos === null) {
+            throw new TypeError('Position must be a non-null object');
+        }
+        if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
+            throw new TypeError('Position object must contain numeric properties x and y');
+        }
+        this.#pos = pos; 
+    }
+
+    set active(val) {
+        if(val !== true && val !== false) return;
+
+        if(val) {
+            if(!GAudio.isPlaying(this.#audio)) this.#audio.play();
+        } else {
+            if(GAudio.isPlaying(this.#audio)) this.#audio.pause();
+        }
+
+        this.#active = val;
+    }
+
+    get active() { return this.#active; }
+    get pos() { return this.#pos; }
+    get sprite() { return this.#sprite; }
+    get audio() { return this.#audio; }
 
 }
 

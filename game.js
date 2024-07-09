@@ -58,6 +58,7 @@ class GG {
             enemyExplosion : 'assets/enemy-explosion.mp3',
             asteroidExplosion : 'assets/asteroid-explosion.mp3',
             shield : 'assets/shield.mp3',
+            shieldHit : 'assets/shield-hit.mp3',
             enemy1 : 'assets/aliens1.mp3', 
             enemy2 : 'assets/aliens2.mp3',
             pause : 'assets/beep.mp3',
@@ -418,11 +419,13 @@ class Game {
             enemy1 : new Audio(assets.enemy1),
             enemy2 : new Audio(assets.enemy2),
             pause : new Audio(assets.pause),
+            shieldHit : new Audio(assets.shieldHit),
         };
 
         this.#audio.enemy1.volume = settings.enemyVolume;
         this.#audio.enemy2.volume = settings.enemyVolume;
         this.#audio.music.volume = settings.musicVolume;
+
     }
 
     #initBackgrounds() {
@@ -547,6 +550,7 @@ class Game {
         if(this.#player.isInvulnerable) return;
         if(this.#player.shield.active) {
             this.#player.shield.sprite.setAnimationState('hit');
+            this.#audio.shieldHit.play();
             TimeoutController.set(() => this.#player.shield.sprite.setAnimationState('iddle'), 200);
         } else {
             this.#playerDestroyed();
@@ -1945,10 +1949,10 @@ class Shield {
         let sprite = GG.ASSETS.SPRITES.SHIELD;
 
         this.#pos = pos || { x : 0, y : 0 };
-        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7, 1, 2, 2, 1, false);
+        this.#sprite = new AnimatedSprite(sprite.src, sprite.width, sprite.height, 0.7, 2, 2, 2, 1, false);
         this.#active = false;
-        this.#sprite.createAnimationState('iddle', 0, 0, 1, 1);
-        this.#sprite.createAnimationState('hit', 1, 0, 1, 1);
+        this.#sprite.createAnimationState('iddle', 0, 0, 1, 2);
+        this.#sprite.createAnimationState('hit', 1, 0, 1, 2);
         this.#sprite.setAnimationState('iddle');
         this.#audio = new Audio(GG.ASSETS.AUDIO.shield);
         this.#audio.loop = true;
@@ -1975,7 +1979,7 @@ class Shield {
         if(val !== true && val !== false) return;
 
         if(val) {
-            if(!GAudio.isPlaying(this.#audio)) this.#audio.play();
+            if(!GAudio.isPlaying(this.#audio) && GG.SETTINGS.enableSound) this.#audio.play();
         } else {
             if(GAudio.isPlaying(this.#audio)) this.#audio.pause();
         }

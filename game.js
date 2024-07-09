@@ -1,6 +1,3 @@
-//TODO:
-//IMPROVE PAUSE LOGIC AND PAUSE SOUND LOGIC IF POSSIBLE
-
 class GG {
 
     static CANVAS = document.getElementById('game-canvas');

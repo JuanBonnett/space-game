@@ -13,7 +13,9 @@ class GG {
             PLAYER :       { src : 'assets/ship-spritesheet.png', width : 100,  height : 100, },
             PROJECTILE :   { src : 'assets/laser.png',            width : 80,   height : 48, },
             ENEMY_PROJ :   { src : 'assets/enemy-laser.png',      width : 80,   height : 48, },
-            SHIELD :       { src : 'assets/shield.png',             width : 128,  height : 128 },
+            SHIELD :       { src : 'assets/shield.png',           width : 128,  height : 128 },
+            SHIELD_ICON :  { src : 'assets/shield-icon.png',      width : 64,   height : 64 },
+            SHIELD_SPAWN : { src : 'assets/shield-powerup.png',   width : 64,   height : 64 },
             ASTEROIDS :    { src : 'assets/asteroids-s.png',      width : 64,   height : 64,
                              variations : {
                                 1 :  { row : 0, col : 0 },
@@ -30,18 +32,18 @@ class GG {
                                 12 : { row : 2, col : 3 }
                             }
             },
-            ENEMIES : { src : 'assets/enemies-2.png',          width : 90,   height : 74,
+            ENEMIES : { src : 'assets/enemies-2.png', width : 90, height : 74,
                         variations : {
-                        1 :  { row : 0, col : 0 },
-                        2 :  { row : 0, col : 1 },
-                        3 :  { row : 0, col : 2 },
-                        4 :  { row : 0, col : 3 },
-                        5 :  { row : 0, col : 4 },
-                        6 :  { row : 0, col : 5 },
-                    }
+                            1 :  { row : 0, col : 0 },
+                            2 :  { row : 0, col : 1 },
+                            3 :  { row : 0, col : 2 },
+                            4 :  { row : 0, col : 3 },
+                            5 :  { row : 0, col : 4 },
+                            6 :  { row : 0, col : 5 },
+                        }
             },
             EXPLOSIONS : {
-                1 : { src : 'assets/explosion1.png', width : 96, height : 96, },
+                1 : { src : 'assets/explosion1.png', width : 96, height : 96 },
                 2 : { src : 'assets/explosion2.png', width : 96, height : 96 },
                 3 : { src : 'assets/explosion3.png', width : 96, height : 96 },
                 4 : { src : 'assets/explosion4.png', width : 96, height : 96 },
@@ -81,6 +83,9 @@ class GG {
         baseEnemyScore : 200,
         scoreSlope : 0.00000005,
         gameResetTimeout : 3000,
+        shieldPowerUpMinInterval : 40000,
+        shieldPowerUpMaxInterval : 120000,
+        frameRate : 60,
     };
     static PLAYER_SETTINGS = {
         acceleration : 0.04,
@@ -171,6 +176,22 @@ class Input {
 
     static unlock(key) {
         this.keys[key] = { locked : false };
+    }
+
+}
+
+class Helper {
+
+    /*
+    Calculates the new height or width of a sprite while preserving aspect ratio.
+    Useful when you want game backgrounds to scale dynamically with monitor size.
+    */
+    static getNewHeight(originalWidth, originalHeight, newWidth) {
+        return (originalHeight / originalWidth) * newWidth;
+    }
+
+    static getNewWidth(originalWidth, originalHeight, newHeight) {
+        return (originalWidth / originalHeight) * newHeight;
     }
 
 }
@@ -333,12 +354,6 @@ class GAudio {
 
 }
 
-class ResourceLoader {
-
-    //TODO: Download All Resources before being able to start the game
-
-}
-
 class Game {
 
     #paused;
@@ -349,6 +364,7 @@ class Game {
     #audio;
     #score;
     #record;
+    #shieldPowerUp;
     
     constructor() {
         GG.CTX.imageSmoothingEnabled = GG.SETTINGS.antialiasing;
@@ -361,6 +377,8 @@ class Game {
         this.#initObjects();
         this.#initInput();
         this.#initAudio();
+
+        this.#shieldPowerUp = new ShieldPowerUp();
     }
 
     #initPlayer() {
@@ -429,8 +447,15 @@ class Game {
         let starsBG = GG.ASSETS.SPRITES.P_BACKGROUND;
         let dustBG = GG.ASSETS.SPRITES.P_DUST;
         
-        this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
-        this.#dustBG = new ParallaxBackground(dustBG.src, dustBG.width, dustBG.height, 0.25);
+        //this.#starsBG = new ParallaxBackground(starsBG.src, starsBG.width, starsBG.height, 0.15);
+        this.#starsBG = new ParallaxBackground(starsBG.src, 
+                                               GG.SCREEN_WIDTH, 
+                                               Helper.getNewHeight(starsBG.width, starsBG.height, GG.SCREEN_WIDTH),
+                                               0.15);
+        this.#dustBG = new ParallaxBackground(dustBG.src, 
+                                              GG.SCREEN_WIDTH, 
+                                              Helper.getNewHeight(dustBG.width, dustBG.height, GG.SCREEN_WIDTH),
+                                              0.25);
     }
 
     #startGame() {
@@ -477,6 +502,7 @@ class Game {
         GG.CTX.clearRect(0, 0, GG.SCREEN_WIDTH, GG.SCREEN_HEIGHT);
         this.#starsBG.update();
         this.#dustBG.update();
+        this.#shieldPowerUp.draw();
     }
 
     pause() {
@@ -685,7 +711,7 @@ class Sprite {
             ctx.restore();
             return;
         }
-        ctx.drawImage(this.#img, 0, 0, this.#width, this.#height);
+        ctx.drawImage(this.#img, x, y, this.#width, this.#height);
     }
 
     drawFromSheet(x, y, row, col, rotation) {
@@ -1991,10 +2017,40 @@ class Shield {
 
 }
 
+class ShieldPowerUp {
+
+    #icon;
+    #spawnIcon;
+    #spawnInterval;
+    #spawnPos;
+
+    constructor() {
+        let sprite = GG.ASSETS.SPRITES.SHIELD_ICON;
+        let spawnIcon = GG.ASSETS.SPRITES.SHIELD_SPAWN;
+
+        this.#icon = new Sprite(sprite.src, sprite.width, sprite.height, 0.4);
+        this.#spawnIcon = new Sprite(spawnIcon.src, spawnIcon.width, spawnIcon.height, 1);
+    }
+
+    update() {}
+
+    draw() {
+    }
+
+}
+
 const GAME = new Game();
-const run = () => {
-    GAME.update();
+const FPS = GG.SETTINGS.frameRate;
+const FRAME_DURATION = 1000 / FPS;
+let lastTime = 0;
+
+const run = (timestamp) => {
+
+    if (timestamp - lastTime >= FRAME_DURATION) {
+        lastTime = timestamp;
+        GAME.update();
+    }
     requestAnimationFrame(run);
 };
 
-run();
+requestAnimationFrame(run);

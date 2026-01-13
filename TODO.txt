@@ -1,4 +1,3 @@
-- See what's causing stutters
 - Add some kind of difficulty increment with time or score
 - Add powerups
 - Add bosses
